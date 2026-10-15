@@ -1,0 +1,40 @@
+{
+  "name": "cloud-tailscale",
+  "version": "0.1.0",
+  "description": "Connect ephemeral cloud coding agents to your Tailscale tailnet.",
+  "license": "MIT",
+  "author": "Dasannn",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "cloud-tailscale": "dist/cli/bin.js",
+    "cts": "dist/cli/bin.js"
+  },
+  "files": [
+    "dist/cli",
+    "dist/core",
+    "dist/tailscale",
+    "dist/ssh",
+    "skill"
+  ],
+  "scripts": {
+    "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p .",
+    "prepare": "npm run build",
+    "typecheck": "tsc -p . --noEmit",
+    "lint": "biome check .",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "ssh2": "1.17.0",
+    "undici": "6.29.1"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.15",
+    "@types/node": "26.6.5",
+    "@types/ssh2": "1.15.6",
+    "typescript": "7.0.2",
+    "vitest": "4.1.12"
+  }
+}
