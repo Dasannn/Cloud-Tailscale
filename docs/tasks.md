@@ -159,3 +159,41 @@ Run by the lead in a Claude Code on the web session whose environment has
 `TS_AUTHKEY`, `TS_SSH_PASSWORD`, and `TS_SSH_USER`, with the setup script
 installing this branch from GitHub. Verify acceptance criteria 1, 2, 4, and
 5 of `docs/spec.md`, and record the results in `docs/decisions/`.
+
+## Phase 3: Release
+
+### 3.1 Release preparation
+
+Files: `README.md`, `CHANGELOG.md`, `.github/workflows/publish.yml`,
+`docs/guides/release.md`, `docs/guides/claude-code.md`, `skill/SKILL.md`,
+`src/cli/main.ts`, `test/unit/package.test.ts`.
+
+- `README.md` for users: what it does, requirements, quick start for Claude
+  Code on the web and Codex Cloud, auth key settings and an ACL example
+  limiting `tag:cloud-agent` to SSH on one device, commands, security
+  notes, limits (DERP-only latency, no exit node), and links to the guides.
+- Recommended Claude Code setup script after release:
+  `npm install -g cloud-tailscale && cts setup || true`, so `cts` is on
+  `PATH` for the whole session; keep `npx -y cloud-tailscale setup` as the
+  alternative. Update the guide and skill accordingly.
+- `--version` prints the package version (read from `package.json`).
+- `CHANGELOG.md` with the 0.1.0 entry.
+- `publish.yml`: on `v*` tags, run the checks, confirm the tag matches
+  `package.json`, and publish with npm trusted publishing (OIDC) and
+  provenance, mirroring Agent-Bridge's workflow and its lessons (no
+  `registry-url` in `setup-node`, `id-token: write`).
+- `docs/guides/release.md`: release checklist, the one-time trusted
+  publisher setup (after the first manual publish creates the package), and
+  the tag-based flow.
+- `test/unit/package.test.ts`: `npm pack --dry-run --json` contains `dist/`
+  modules, `skill/SKILL.md`, `README.md`, `LICENSE`, and no tests, sources,
+  fixtures, or docs.
+
+Done: checks pass; `npm pack` then installing the tarball into a temporary
+prefix gives a working `cts --version`, `cts --help`, and
+`cts skill --print`.
+
+### 3.2 First publish (lead and owner)
+
+The owner signs in with `npm login --auth-type=web` from the lead's session;
+the lead publishes 0.1.0 and the owner configures the trusted publisher.
