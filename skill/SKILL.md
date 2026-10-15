@@ -13,8 +13,20 @@ and a TUN device are optional.
 
 ## Install when missing
 
-Use `npx -y cloud-tailscale up`; for later commands, replace `cts` below with
-`npx -y cloud-tailscale` if the executable is not on PATH.
+For Claude Code with a writable global npm prefix, the recommended
+environment setup script is:
+
+```bash
+npm install -g cloud-tailscale && cts setup || true
+```
+
+This puts `cts` on PATH for the session and installs this skill. Check
+`cts status` afterward: `|| true` lets the session start even if setup
+fails. If the daemon did not survive setup, run `cts up` again.
+
+Alternatively, use `npx -y cloud-tailscale setup` (or
+`npx -y cloud-tailscale up` to connect only). For later commands, replace
+`cts` below with `npx -y cloud-tailscale` if it is not on PATH.
 
 With a read-only home (Codex Cloud), install once per task in `/tmp` and use
 the full executable path wherever this skill says `cts`:

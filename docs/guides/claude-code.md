@@ -45,11 +45,16 @@ blocked; DERP carries the tailnet connection through the egress proxy.
 
 ## Set the setup script
 
-Add this exact line to the Claude Code environment's setup script:
+After the package is released, add this exact line to the Claude Code
+environment's setup script:
 
 ```bash
-npx -y cloud-tailscale setup
+npm install -g cloud-tailscale && cts setup || true
 ```
+
+The global installation makes `cts` available on PATH for the whole
+session. `|| true` allows the session to start even when installation or
+setup fails; review the setup output and check `cts status` in the session.
 
 Setup runs `up`, installs the skill into
 `~/.claude/skills/cloud-tailscale/SKILL.md` on a Claude Code host, and reports
@@ -57,15 +62,18 @@ both steps. A missing auth key defers the connection and exits successfully
 if skill installation succeeds. Configure the secret, then have the agent
 run `cts up` later. Other failures are reported with a nonzero exit status.
 
-The skill contains the install commands if `cts` is not on PATH. Have the
-agent check the connection and run a command on a peer:
+Have the agent check the connection and run a command on a peer:
 
 ```bash
-npx -y cloud-tailscale status
-npx -y cloud-tailscale ssh dasan@raspberry5 -- uname -a
+cts status
+cts ssh dasan@raspberry5 -- uname -a
 ```
 
-If the daemon did not survive setup, run `npx -y cloud-tailscale up` again.
-The node's state stays in memory. Run `npx -y cloud-tailscale down` to log out
-and stop it immediately. See [troubleshooting](troubleshooting.md) for error
-codes and recovery steps.
+Alternatively, the setup script can use `npx -y cloud-tailscale setup`.
+This does not put `cts` on PATH for later commands; use
+`npx -y cloud-tailscale` wherever the examples say `cts`, or follow the
+skill's installation instructions.
+
+If the daemon did not survive setup, run `cts up` again. The node's state
+stays in memory. Run `cts down` to log out and stop it immediately. See
+[troubleshooting](troubleshooting.md) for error codes and recovery steps.

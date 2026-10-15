@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { CtError } from "../core/errors.js";
 import { clearSecrets, printError, printResult, type Result } from "../core/output.js";
 import { registerEnvironmentSecrets } from "../core/secrets.js";
@@ -36,7 +37,7 @@ function help(): Result {
   return {
     ok: true,
     message: [
-      "Usage: cloud-tailscale <command> [args] [--json] [--help]",
+      "Usage: cloud-tailscale <command> [args] [--json] [--help] [--version]",
       "Alias: cts",
       "",
       `Commands: ${commandNames.join(", ")}`,
@@ -44,6 +45,7 @@ function help(): Result {
       "Options:",
       "  --json  Print a machine-readable result.",
       "  --help  Show this help.",
+      "  --version  Print the package version.",
     ].join("\n"),
     data: { commands: commandNames },
   };
@@ -53,6 +55,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
   registerEnvironmentSecrets();
   let json = false;
   let showHelp = false;
+  let showVersion = false;
   const args: string[] = [];
   let passthrough = false;
   for (const arg of argv) {
@@ -63,12 +66,22 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
       json = true;
     } else if (!passthrough && arg === "--help") {
       showHelp = true;
+    } else if (!passthrough && arg === "--version") {
+      showVersion = true;
     } else {
       args.push(arg);
     }
   }
 
   try {
+    if (showVersion) {
+      // This URL works from both src/cli and the installed dist/cli.
+      const { version } = JSON.parse(
+        await readFile(new URL("../../package.json", import.meta.url), "utf8"),
+      );
+      printResult({ ok: true, message: version, data: { version } }, json);
+      return 0;
+    }
     const name = args.shift();
     if (showHelp || name === undefined) {
       printResult(help(), json);

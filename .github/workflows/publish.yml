@@ -1,0 +1,32 @@
+name: Publish
+
+# Stage tagged releases for the owner's approval, mirroring Agent-Bridge.
+# npm trusted publishing supplies OIDC authentication and provenance.
+# See docs/guides/release.md; do not set registry-url in setup-node.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm install -g npm@^11.15.0
+      - run: npm --version
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - name: Check that the tag matches the package version
+        run: test "v$(node -p 'require("./package.json").version')" = "$GITHUB_REF_NAME"
+      - run: npm stage publish --access public
