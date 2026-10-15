@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { commands, main } from "../../../src/cli/main.js";
+import { CtError } from "../../../src/core/errors.js";
 
 let stdout: ReturnType<typeof vi.spyOn>;
 let stderr: ReturnType<typeof vi.spyOn>;
@@ -22,7 +23,7 @@ describe("CLI dispatcher", () => {
       expect(stderr).not.toHaveBeenCalled();
     },
   );
-  it.each(["up", "status", "down", "nc", "env", "ssh", "ssh-config", "skill", "setup"])(
+  it.each(["up", "status", "down", "nc", "env", "skill", "setup"])(
     "returns NOT_IMPLEMENTED for %s",
     async (command) => {
       expect(await main([command])).toBe(1);
@@ -77,22 +78,58 @@ describe("CLI dispatcher", () => {
     expect(output).not.toContain("password-suffix");
   });
   it("preserves arguments after -- without interpreting remote flags", async () => {
+    vi.spyOn(commands, "ssh").mockRejectedValue(
+      new CtError("NOT_IMPLEMENTED", "FAKE transport", "Retry after Phase 2."),
+    );
     expect(await main(["ssh", "FAKE-host", "--", "--help", "--json"])).toBe(1);
     expect(stderr).toHaveBeenCalledWith(expect.stringContaining("NOT_IMPLEMENTED:"));
   });
 
-  it("dispatches arguments and prints a successful command result", async () => {
+  it.each([false, true])("dispatches arguments and output context (json=%s)", async (json) => {
     const command = vi.spyOn(commands, "ssh").mockResolvedValue({
       ok: true,
       message: "FAKE command completed.",
       data: { exitCode: 0 },
     });
-    expect(await main(["--json", "ssh", "FAKE-host", "--", "--help", "--json"])).toBe(0);
-    expect(command).toHaveBeenCalledWith(["FAKE-host", "--", "--help", "--json"]);
-    expect(JSON.parse(String(stdout.mock.calls[0][0]))).toEqual({
-      ok: true,
-      message: "FAKE command completed.",
-      data: { exitCode: 0 },
+    expect(
+      await main([...(json ? ["--json"] : []), "ssh", "FAKE-host", "--", "--help", "--json"]),
+    ).toBe(0);
+    expect(command).toHaveBeenCalledExactlyOnceWith(["FAKE-host", "--", "--help", "--json"], {
+      json,
+    });
+    expect(stdout).toHaveBeenCalledExactlyOnceWith(
+      json
+        ? '{"ok":true,"message":"FAKE command completed.","data":{"exitCode":0}}\n'
+        : "FAKE command completed.\n",
+    );
+    expect(stderr).not.toHaveBeenCalled();
+  });
+
+  describe.each([false, true])("explicit command exit codes (json=%s)", (json) => {
+    it.each([
+      { ok: true, exitCode: 37 },
+      { ok: false, exitCode: 42 },
+      { ok: false, exitCode: 0 },
+    ])("returns $exitCode and routes masked output for ok=$ok", async ({ ok, exitCode }) => {
+      vi.stubEnv("TS_SSH_PASSWORD", "tskey-FAKE!password-suffix");
+      vi.spyOn(commands, "ssh").mockResolvedValue({
+        ok,
+        message: "SSH finished with tskey-FAKE!password-suffix.",
+        data: { exitCode, detail: "tskey-FAKE!password-suffix" },
+        exitCode,
+      });
+      expect(await main(["ssh", "FAKE-host", ...(json ? ["--json"] : [])])).toBe(exitCode);
+      const output = ok ? stdout : stderr;
+      expect(ok ? stderr : stdout).not.toHaveBeenCalled();
+      expect(output).toHaveBeenCalledExactlyOnceWith(
+        json
+          ? `${JSON.stringify({
+              ok,
+              message: "SSH finished with [REDACTED].",
+              data: { exitCode, detail: "[REDACTED]" },
+            })}\n`
+          : "SSH finished with [REDACTED].\n",
+      );
     });
   });
 

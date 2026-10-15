@@ -1,8 +1,16 @@
 import { CtError } from "../core/errors.js";
 import { clearSecrets, printError, printResult, type Result } from "../core/output.js";
 import { registerEnvironmentSecrets } from "../core/secrets.js";
+import { createSshCommands } from "./commands/ssh.js";
 
-export type Command = (args: string[]) => Result<unknown> | Promise<Result<unknown>>;
+export interface CommandResult extends Result<unknown> {
+  exitCode?: number;
+}
+
+export type Command = (
+  args: string[],
+  context?: { json: boolean },
+) => CommandResult | Promise<CommandResult>;
 
 const commandNames = ["up", "status", "down", "nc", "env", "ssh", "ssh-config", "skill", "setup"];
 
@@ -18,6 +26,8 @@ export const commands: Readonly<Record<string, Command>> = Object.fromEntries(
     },
   ]),
 );
+
+Object.assign(commands, createSshCommands());
 
 function help(): Result {
   return {
@@ -69,9 +79,9 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
         "Run cloud-tailscale --help to list commands.",
       );
     }
-    const result = await command(args);
+    const result = await command(args, { json });
     printResult(result, json);
-    return result.ok ? 0 : 1;
+    return result.exitCode ?? (result.ok ? 0 : 1);
   } catch (cause) {
     const error =
       cause instanceof CtError
