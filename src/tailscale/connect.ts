@@ -65,8 +65,8 @@ export async function connect(options: ConnectOptions = {}): Promise<Connection>
   let status: TailscaleStatus | undefined;
   const daemonRunning = await isRunning(paths);
   if (client && daemonRunning) {
-    status = await client.statusJson();
-    if (connected(status, await hasConnectedDerp(paths.logFile))) {
+    status = await client.statusJson().catch(() => undefined);
+    if (status && connected(status, await hasConnectedDerp(paths.logFile))) {
       config ??= {
         version: client.installation.version,
         mode: status.TUN ? "kernel" : "userspace",

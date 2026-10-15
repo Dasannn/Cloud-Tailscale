@@ -95,10 +95,10 @@ describe("CLI dispatcher", () => {
   });
   it("preserves arguments after -- without interpreting remote flags", async () => {
     vi.spyOn(commands, "ssh").mockRejectedValue(
-      new CtError("NOT_IMPLEMENTED", "FAKE transport", "Retry after Phase 2."),
+      new CtError("SSH_CONNECTION_FAILED", "FAKE transport", "Check the peer's online state."),
     );
     expect(await main(["ssh", "FAKE-host", "--", "--help", "--json"])).toBe(1);
-    expect(stderr).toHaveBeenCalledWith(expect.stringContaining("NOT_IMPLEMENTED:"));
+    expect(stderr).toHaveBeenCalledWith(expect.stringContaining("SSH_CONNECTION_FAILED:"));
   });
 
   it.each([false, true])("dispatches arguments and output context (json=%s)", async (json) => {

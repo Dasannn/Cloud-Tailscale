@@ -30,7 +30,24 @@ async function createAgent(): Promise<EnvHttpProxyAgent> {
     requestTls: tls,
     proxyTls: tls,
   };
-  return new EnvHttpProxyAgent(options);
+  // Filter at emission: a warning listener runs after Node has already printed it.
+  // The constructor emits synchronously, so restore the original before yielding.
+  const emitWarning = process.emitWarning;
+  process.emitWarning = (warning, ...args: unknown[]) => {
+    const options = args[0];
+    const code =
+      warning instanceof Error && "code" in warning
+        ? warning.code
+        : typeof options === "object" && options !== null && "code" in options
+          ? options.code
+          : args[1];
+    if (code !== "UNDICI-EHPA") Reflect.apply(emitWarning, process, [warning, ...args]);
+  };
+  try {
+    return new EnvHttpProxyAgent(options);
+  } finally {
+    process.emitWarning = emitWarning;
+  }
 }
 
 /** Proxy configuration is read from the environment by EnvHttpProxyAgent. */

@@ -2,6 +2,7 @@ import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ncCliCommand, ncCommand } from "../../../../src/cli/commands/nc.js";
+import { CtError } from "../../../../src/core/errors.js";
 import { ensureConnected } from "../../../../src/tailscale/connect.js";
 
 vi.mock("../../../../src/tailscale/connect.js", () => ({ ensureConnected: vi.fn() }));
@@ -78,6 +79,16 @@ describe("nc command", () => {
     await vi.waitFor(() => expect(ncSpawn).toHaveBeenCalled());
     child.emit("error", new Error("FAKE spawn failure"));
     await check;
+  });
+  it("reports a missing auth key before opening the TCP stream", async () => {
+    const { ncSpawn, streams } = transport();
+    vi.mocked(ensureConnected).mockRejectedValue(
+      new CtError("AUTH_KEY_MISSING", "No key configured.", "Set TS_AUTHKEY in secrets."),
+    );
+    await expect(ncCommand(["raspberry5", "22"], streams)).rejects.toMatchObject({
+      code: "AUTH_KEY_MISSING",
+    });
+    expect(ncSpawn).not.toHaveBeenCalled();
   });
   it.each(
     [[], ["host"], ["host", "22", "extra"], ["host", "abc"], ["host", "0"], ["--help", "22"]].map(

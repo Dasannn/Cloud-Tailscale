@@ -1,17 +1,26 @@
+import { EventEmitter } from "node:events";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { PassThrough, Writable } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createSshCommands } from "../../../src/cli/commands/ssh.js";
 import { commands, main } from "../../../src/cli/main.js";
+import { CtError } from "../../../src/core/errors.js";
 import { clearSecrets } from "../../../src/core/output.js";
 import * as proc from "../../../src/core/proc.js";
 import type { TerminalInput } from "../../../src/ssh/session.js";
+import { ensureConnected } from "../../../src/tailscale/connect.js";
 import { memoryServer, password } from "../ssh/server.js";
+
+vi.mock("../../../src/tailscale/connect.js", () => ({
+  ensureConnected: vi.fn(),
+  connect: vi.fn(),
+}));
 
 let temp: string;
 const servers: ReturnType<typeof memoryServer>[] = [];
 beforeEach(async () => {
+  vi.mocked(ensureConnected).mockReset();
   temp = await mkdtemp("/tmp/cts-ssh-command-");
 });
 afterEach(async () => {
@@ -66,6 +75,36 @@ function testCommands(exitCode = 0) {
     ctsPath: "/opt/cts",
   });
   return { registered, server, streamFactory, stdout, stderr };
+}
+
+function defaultCommands(server?: ReturnType<typeof memoryServer>) {
+  const remote = server?.factory();
+  const child = Object.assign(new EventEmitter(), {
+    stdin: new PassThrough(),
+    stdout: new PassThrough(),
+    stderr: new PassThrough(),
+    kill: vi.fn(() => {
+      remote?.destroy();
+      return true;
+    }),
+  });
+  if (remote) {
+    remote.on("error", () => {});
+    child.stdin.pipe(remote);
+    remote.pipe(child.stdout);
+  }
+  const ncSpawn = vi.fn(() => child);
+  vi.mocked(ensureConnected).mockResolvedValue({ client: { ncSpawn } } as never);
+  const env = {
+    CLOUD_TAILSCALE_HOME: join(temp, "cts-home"),
+    TS_SSH_PASSWORD: password,
+    TS_AUTHKEY: "tskey-auth-FAKE",
+    HOME: temp,
+  };
+  const stdin = new PassThrough();
+  stdin.end();
+  const registered = createSshCommands({ env, stdin, ctsPath: "/opt/cts" });
+  return { registered, child, ncSpawn, env };
 }
 
 describe("SSH commands", () => {
@@ -132,15 +171,143 @@ describe("SSH commands", () => {
     expect(stdin.setRawMode).toHaveBeenLastCalledWith(false);
   });
 
-  it("keeps default providers explicitly unimplemented until Phase 2", async () => {
-    const registered = createSshCommands({
-      env: { CLOUD_TAILSCALE_HOME: join(temp, "cts-home"), TS_SSH_PASSWORD: password },
+  it("auto-connects and runs SSH over the real nc provider, then stops the child", async () => {
+    const server = memoryServer({
+      exec(channel, command) {
+        channel.write(`ran: ${command}\n`);
+        channel.exit(37);
+        channel.end();
+      },
     });
-    await expect(registered.ssh(["pi", "--", "true"])).rejects.toMatchObject({
-      code: "NOT_IMPLEMENTED",
-      message: expect.stringContaining("Phase 2"),
+    servers.push(server);
+    const { registered, child, ncSpawn, env } = defaultCommands(server);
+    const result = await registered.ssh(["alice@pi", "--", "uname", "-a"], { json: true });
+    expect(ensureConnected).toHaveBeenCalledExactlyOnceWith({ env });
+    expect(ncSpawn).toHaveBeenCalledExactlyOnceWith("pi", 22);
+    expect(result).toMatchObject({
+      ok: false,
+      exitCode: 37,
+      data: { stdout: "ran: uname -a\n", stderr: "" },
     });
-    await expect(registered["ssh-config"]([])).rejects.toMatchObject({ code: "NOT_IMPLEMENTED" });
+    await vi.waitFor(() => expect(child.kill).toHaveBeenCalledOnce());
+  });
+
+  it.each(["unknown peer name", "peer is offline"])(
+    "reports nc failure (%s) after stdout closes and masks chunked diagnostics",
+    async (diagnostic) => {
+      const { registered, child, ncSpawn } = defaultCommands();
+      const result = registered.ssh(["alice@pi", "--", "true"], { json: true });
+      const check = expect(result).rejects.toMatchObject({
+        code: "SSH_CONNECTION_FAILED",
+        message: expect.stringContaining(`${diagnostic}: [REDACTED]`),
+        next: expect.stringMatching(/peer name.*online state.*ACLs/),
+      });
+      await vi.waitFor(() => expect(ncSpawn).toHaveBeenCalled());
+      child.stdout.end();
+      child.stderr.write(`${diagnostic}: tskey-au`);
+      child.stderr.end("th-FAKE");
+      child.emit("close", 1);
+      await check;
+    },
+  );
+
+  it("preserves nc diagnostics when its input pipe fails before process close", async () => {
+    const { registered, child, ncSpawn } = defaultCommands();
+    const result = registered.ssh(["alice@pi", "--", "true"], { json: true });
+    const check = expect(result).rejects.toMatchObject({
+      code: "SSH_CONNECTION_FAILED",
+      message: expect.stringContaining("unknown name"),
+    });
+    // SSH writes its client banner immediately, before nc has necessarily connected.
+    child.stdin._write = (_chunk, _encoding, done) => {
+      done(Object.assign(new Error("FAKE broken pipe"), { code: "EPIPE" }));
+    };
+    await vi.waitFor(() => expect(ncSpawn).toHaveBeenCalled());
+    child.stderr.end("unknown name");
+    child.emit("close", 1);
+    await check;
+  });
+
+  it("reports subprocess spawn errors and stops the transport", async () => {
+    const { registered, child, ncSpawn } = defaultCommands();
+    const result = registered.ssh(["alice@pi", "--", "true"], { json: true });
+    const check = expect(result).rejects.toMatchObject({
+      code: "SSH_CONNECTION_FAILED",
+      message: expect.stringContaining("pi:22"),
+    });
+    await vi.waitFor(() => expect(ncSpawn).toHaveBeenCalled());
+    child.emit("error", new Error("FAKE spawn error"));
+    await check;
+    expect(child.kill).toHaveBeenCalledOnce();
+  });
+
+  it("propagates nc failure during a running SSH command", async () => {
+    const server = memoryServer({ exec() {} });
+    servers.push(server);
+    const { registered, child } = defaultCommands(server);
+    const result = registered.ssh(["alice@pi", "--", "sleep", "60"], { json: true });
+    const check = expect(result).rejects.toMatchObject({
+      code: "SSH_CONNECTION_FAILED",
+      message: expect.stringContaining("FAKE peer disconnected"),
+    });
+    await vi.waitFor(() => expect(server.commands).toEqual(["sleep 60"]));
+    child.stderr.end("FAKE peer disconnected");
+    child.emit("close", 1);
+    await check;
+  });
+
+  it("checks the tailnet connection before requiring SSH credentials", async () => {
+    vi.mocked(ensureConnected).mockRejectedValue(
+      new CtError("AUTH_KEY_MISSING", "No key configured.", "Set TS_AUTHKEY in secrets."),
+    );
+    const registered = createSshCommands({ env: {} });
+    await expect(registered.ssh(["alice@pi", "--", "true"])).rejects.toMatchObject({
+      code: "AUTH_KEY_MISSING",
+    });
+    expect(ensureConnected).toHaveBeenCalledExactlyOnceWith({ env: {} });
+  });
+
+  it.each(["ssh", "ssh-config"] as const)(
+    "%s propagates a missing auth key before opening a transport or writing config",
+    async (command) => {
+      const { registered, ncSpawn } = defaultCommands();
+      vi.mocked(ensureConnected).mockRejectedValue(
+        new CtError("AUTH_KEY_MISSING", "No key configured.", "Set TS_AUTHKEY in secrets."),
+      );
+      await expect(
+        registered[command](command === "ssh" ? ["alice@pi", "--", "true"] : []),
+      ).rejects.toMatchObject({ code: "AUTH_KEY_MISSING" });
+      expect(ncSpawn).not.toHaveBeenCalled();
+      await expect(readFile(join(temp, ".ssh", "config"))).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+    },
+  );
+
+  it("gets online peers from status JSON through the default connection provider", async () => {
+    vi.spyOn(proc, "run").mockResolvedValue({ stdout: "", stderr: "", exitCode: 0, signal: null });
+    const { registered, env } = defaultCommands();
+    const status = JSON.parse(
+      await readFile(
+        new URL("../../fixtures/tailscale/status-running.json", import.meta.url),
+        "utf8",
+      ),
+    );
+    status.Peer["FAKE-dns-only"] = {
+      DNSName: "dns-peer.example.ts.net.",
+      TailscaleIPs: ["fd7a:115c:a1e0::20"],
+      Online: true,
+    };
+    status.Peer["FAKE-no-address"] = { HostName: "no-address", Online: true };
+    vi.mocked(ensureConnected).mockResolvedValue({ status } as never);
+    expect(await registered["ssh-config"]([])).toMatchObject({ ok: true, data: { peers: 2 } });
+    expect(ensureConnected).toHaveBeenCalledExactlyOnceWith({ env });
+    const saved = await readFile(join(temp, ".ssh", "config"), "utf8");
+    expect(saved).toContain("Host raspberry5\n  HostName 100.64.0.20");
+    expect(saved).toContain("Host dns-peer.example.ts.net\n  HostName fd7a:115c:a1e0::20");
+    expect(saved).toContain("ProxyCommand '/opt/cts' nc %h %p");
+    expect(saved).not.toContain("offline-peer");
+    expect(saved).not.toContain("no-address");
   });
 
   it("updates the user's OpenSSH config for online peers", async () => {

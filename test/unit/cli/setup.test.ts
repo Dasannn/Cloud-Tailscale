@@ -4,6 +4,12 @@ import { commands, main } from "../../../src/cli/main.js";
 import { CtError } from "../../../src/core/errors.js";
 import { clearSecrets } from "../../../src/core/output.js";
 import { installSkill } from "../../../src/core/skill.js";
+import { connect } from "../../../src/tailscale/connect.js";
+
+vi.mock("../../../src/tailscale/connect.js", () => ({
+  connect: vi.fn(),
+  ensureConnected: vi.fn(),
+}));
 
 vi.mock("../../../src/core/skill.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../../src/core/skill.js")>()),
@@ -23,6 +29,7 @@ const claudeEnv = { CLAUDECODE: "1", TS_AUTHKEY: "tskey-auth-FAKE" };
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(connect).mockReset();
   vi.mocked(installSkill).mockResolvedValue(installation);
 });
 
@@ -105,13 +112,48 @@ describe("setup steps", () => {
     expect(installSkill).toHaveBeenCalledOnce();
   });
 
-  it("reports NOT_IMPLEMENTED from the default up stub while still installing the skill", async () => {
+  it("uses the real connection provider by default and reports the connected node", async () => {
+    vi.mocked(connect).mockResolvedValue({
+      config: { hostname: "claude-cloud-FAKE", mode: "userspace", proxyPort: 1055 },
+      status: {
+        BackendState: "Running",
+        TailscaleIPs: ["100.64.0.10"],
+        Self: { HostName: "claude-cloud-FAKE", Relay: "nyc" },
+      },
+      alreadyConnected: false,
+    } as never);
     const result = await setupCommand([], { env: claudeEnv });
-    expect(result.ok).toBe(false);
+    expect(connect).toHaveBeenCalledExactlyOnceWith({ env: claudeEnv });
+    expect(result.ok).toBe(true);
     expect(result.data.steps).toMatchObject([
-      { name: "up", status: "failed", code: "NOT_IMPLEMENTED", next: expect.any(String) },
+      {
+        name: "up",
+        status: "completed",
+        message: expect.stringContaining("Connected as claude-cloud-FAKE (100.64.0.10)"),
+        data: { mode: "userspace", derp: "nyc" },
+      },
       { name: "skill", status: "completed" },
     ]);
+    expect(vi.mocked(connect).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(installSkill).mock.invocationCallOrder[0],
+    );
+  });
+
+  it("reports a real connection failure while still installing the Claude skill", async () => {
+    vi.mocked(connect).mockRejectedValue(
+      new CtError("AUTH_KEY_REJECTED", "FAKE key expired.", "Replace TS_AUTHKEY in secrets."),
+    );
+    const result = await setupCommand([], { env: claudeEnv });
+    expect(result).toMatchObject({
+      ok: false,
+      data: {
+        steps: [
+          { name: "up", status: "failed", code: "AUTH_KEY_REJECTED" },
+          { name: "skill", status: "completed" },
+        ],
+      },
+    });
+    expect(result.message).toContain("Replace TS_AUTHKEY in secrets.");
   });
 
   it.each(["AUTH_KEY_REJECTED", "CONTROL_UNREACHABLE", "DERP_UNREACHABLE"] as const)(
@@ -224,6 +266,7 @@ describe("setup output through the dispatcher", () => {
     const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
     expect(await main(["setup", "--json"])).toBe(0);
     expect(stderr).not.toHaveBeenCalled();
+    expect(connect).not.toHaveBeenCalled();
     expect(stdout).toHaveBeenCalledOnce();
     expect(JSON.parse(String(stdout.mock.calls[0][0]))).toMatchObject({
       ok: true,

@@ -21,6 +21,7 @@ beforeEach(() => {
 afterEach(async () => {
   await closeHttp().catch(() => {});
   vi.clearAllMocks();
+  vi.restoreAllMocks();
   vi.unstubAllEnvs();
 });
 
@@ -99,5 +100,56 @@ describe("proxy-aware fetch", () => {
   });
   it("rejects invalid URLs with a stable code", async () => {
     await expect(fetch("FAKE-invalid-url")).rejects.toMatchObject({ code: "INVALID_ARGUMENT" });
+  });
+  it.each(["options", "positional", "error"])(
+    "suppresses only UNDICI-EHPA (%s) and restores warning emission",
+    async (format) => {
+      const emitWarning = vi.spyOn(process, "emitWarning").mockImplementation(() => {});
+      vi.mocked(EnvHttpProxyAgent).mockImplementationOnce(
+        class {
+          close = vi.fn().mockResolvedValue(undefined);
+          constructor() {
+            if (format === "options") {
+              process.emitWarning("FAKE experimental proxy warning", { code: "UNDICI-EHPA" });
+            } else if (format === "positional") {
+              process.emitWarning("FAKE experimental proxy warning", "Warning", "UNDICI-EHPA");
+            } else {
+              process.emitWarning(
+                Object.assign(new Error("FAKE proxy warning"), { code: "UNDICI-EHPA" }),
+              );
+            }
+            process.emitWarning("FAKE other warning", { code: "FAKE-OTHER" });
+            process.emitWarning("FAKE positional warning", "Warning", "FAKE-POSITIONAL");
+          }
+        } as typeof EnvHttpProxyAgent,
+      );
+      await fetch("https://pkgs.tailscale.com");
+      expect(emitWarning).toHaveBeenCalledTimes(2);
+      expect(emitWarning).toHaveBeenCalledWith("FAKE other warning", { code: "FAKE-OTHER" });
+      expect(emitWarning).toHaveBeenCalledWith(
+        "FAKE positional warning",
+        "Warning",
+        "FAKE-POSITIONAL",
+      );
+      expect(process.emitWarning).toBe(emitWarning);
+      process.emitWarning("FAKE later warning");
+      expect(emitWarning).toHaveBeenLastCalledWith("FAKE later warning");
+    },
+  );
+  it("restores warning emission even when the proxy agent constructor fails", async () => {
+    const emitWarning = vi.spyOn(process, "emitWarning").mockImplementation(() => {});
+    vi.mocked(EnvHttpProxyAgent).mockImplementationOnce(
+      class {
+        constructor() {
+          process.emitWarning("FAKE experimental proxy warning", { code: "UNDICI-EHPA" });
+          throw new Error("FAKE agent configuration failure");
+        }
+      } as typeof EnvHttpProxyAgent,
+    );
+    await expect(fetch("https://pkgs.tailscale.com")).rejects.toMatchObject({
+      code: "DOWNLOAD_FAILED",
+    });
+    expect(emitWarning).not.toHaveBeenCalled();
+    expect(process.emitWarning).toBe(emitWarning);
   });
 });

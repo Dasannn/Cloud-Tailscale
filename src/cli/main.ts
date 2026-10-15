@@ -21,30 +21,16 @@ export type Command = (
 
 const commandNames = ["up", "status", "down", "nc", "env", "ssh", "ssh-config", "skill", "setup"];
 
-export const commands: Readonly<Record<string, Command>> = Object.fromEntries([
-  ...commandNames.map((name) => [
-    name,
-    () => {
-      throw new CtError(
-        "NOT_IMPLEMENTED",
-        `The ${name} command is not implemented yet.`,
-        "Use a Cloud-Tailscale release that includes this command.",
-      );
-    },
-  ]),
-  ["skill", skillCommand],
-  ["setup", setupCommand],
-]);
-
-Object.assign(commands, createSshCommands());
-
-Object.assign(commands, {
+export const commands: Readonly<Record<string, Command>> = {
   up: upCommand,
   status: statusCommand,
   down: downCommand,
   nc: ncCliCommand,
   env: envCommand,
-});
+  ...createSshCommands(),
+  skill: skillCommand,
+  setup: (args) => setupCommand(args),
+};
 
 function help(): Result {
   return {

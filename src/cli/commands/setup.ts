@@ -3,6 +3,8 @@ import { detectHost } from "../../core/host.js";
 import type { Result } from "../../core/output.js";
 import { getAuthKey } from "../../core/secrets.js";
 import { installSkill, type SkillInstallation } from "../../core/skill.js";
+import { connect } from "../../tailscale/connect.js";
+import { connectionData } from "./up.js";
 
 export interface SetupStep {
   name: "up" | "skill";
@@ -19,12 +21,13 @@ export interface SetupDependencies {
   installSkill?: () => Promise<SkillInstallation>;
 }
 
-function unimplementedUp(): never {
-  throw new CtError(
-    "NOT_IMPLEMENTED",
-    "The setup up step is not connected to Tailscale in this build.",
-    "Use a Cloud-Tailscale release with setup's up integration wired in.",
-  );
+async function defaultUp(env: NodeJS.ProcessEnv): Promise<Result> {
+  const data = connectionData(await connect({ env }));
+  return {
+    ok: true,
+    message: `${data.alreadyConnected ? "Already connected" : "Connected"} as ${data.name} (${data.ips.join(", ") || "IP pending"}) in ${data.mode} mode; DERP ${data.derp}.`,
+    data,
+  };
 }
 
 function failedStep(name: SetupStep["name"], cause: unknown): SetupStep {
@@ -45,7 +48,6 @@ function failedStep(name: SetupStep["name"], cause: unknown): SetupStep {
   };
 }
 
-/** Phase 2 supplies the real up command here; this track never imports tailscale. */
 export async function setupCommand(
   args: string[],
   dependencies: SetupDependencies = {},
@@ -72,7 +74,7 @@ export async function setupCommand(
     );
   } else {
     try {
-      const result = await (dependencies.up ?? unimplementedUp)();
+      const result = await (dependencies.up ?? (() => defaultUp(env)))();
       steps.push({
         name: "up",
         status: result.ok ? "completed" : "failed",

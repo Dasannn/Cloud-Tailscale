@@ -5,14 +5,26 @@ import { CtError } from "../../core/errors.js";
 import type { Result } from "../../core/output.js";
 import { run } from "../../core/proc.js";
 import { type SshPeer, writeSshConfig } from "../../ssh/config.js";
+import { ensureConnected } from "../../tailscale/connect.js";
 
 export interface SshConfigDependencies {
-  onlinePeers: () => Promise<readonly SshPeer[]>;
+  onlinePeers?: () => Promise<readonly SshPeer[]>;
   env?: NodeJS.ProcessEnv;
   ctsPath?: string;
 }
 
-export function createSshConfigCommand(dependencies: SshConfigDependencies) {
+async function onlinePeers(env: NodeJS.ProcessEnv): Promise<SshPeer[]> {
+  const { status } = await ensureConnected({ env });
+  return Object.values(status.Peer ?? {})
+    .flatMap((peer) => {
+      const ip = peer.TailscaleIPs?.[0];
+      if (peer.Online !== true || !ip) return [];
+      return [{ name: peer.HostName || peer.DNSName?.replace(/\.$/, "") || ip, ip, online: true }];
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export function createSshConfigCommand(dependencies: SshConfigDependencies = {}) {
   return async (args: string[]): Promise<Result> => {
     if (args.length) {
       throw new CtError(
@@ -21,8 +33,8 @@ export function createSshConfigCommand(dependencies: SshConfigDependencies) {
         "Run cloud-tailscale ssh-config to update entries for online peers.",
       );
     }
-    // Query peers first: the Phase 2 provider will ensure a connection (FR-9).
-    const peers = await dependencies.onlinePeers();
+    const env = dependencies.env ?? process.env;
+    const peers = await (dependencies.onlinePeers ?? (() => onlinePeers(env)))();
     try {
       const result = await run("ssh", ["-V"], { timeoutMs: 5_000 });
       if (result.exitCode !== 0) throw new Error("ssh -V failed");
@@ -34,7 +46,6 @@ export function createSshConfigCommand(dependencies: SshConfigDependencies) {
         { cause },
       );
     }
-    const env = dependencies.env ?? process.env;
     const sshDir = join(env.HOME || homedir(), ".ssh");
     const configFile = join(sshDir, "config");
     const ctsPath = dependencies.ctsPath ?? fileURLToPath(new URL("../bin.js", import.meta.url));

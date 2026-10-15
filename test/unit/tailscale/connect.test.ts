@@ -139,6 +139,38 @@ describe("ephemeral tailnet join", () => {
     expect(ensureInstalled).not.toHaveBeenCalled();
     expect(start).not.toHaveBeenCalled();
   });
+  describe.each(["stopped", "logged out", "relay disconnected", "unreadable status"])(
+    "automatic connection when %s",
+    (state) => {
+      beforeEach(() => {
+        if (state === "stopped") return;
+        vi.mocked(findInstalled).mockResolvedValue(installation);
+        vi.mocked(isRunning).mockResolvedValue(true);
+        vi.mocked(readConfig).mockResolvedValue(config);
+        if (state === "logged out") {
+          mocks.statusJson.mockResolvedValueOnce({ BackendState: "NeedsLogin" });
+        } else if (state === "relay disconnected") {
+          vi.mocked(hasConnectedDerp).mockResolvedValueOnce(false);
+        } else {
+          mocks.statusJson.mockRejectedValueOnce(
+            new CtError("DAEMON_UNAVAILABLE", "FAKE stale socket.", "Run up."),
+          );
+        }
+      });
+      it("runs up with an available key", async () => {
+        const result = await ensureConnected({ env, pollIntervalMs: 1 });
+        expect(result).toMatchObject({ alreadyConnected: false, status: running });
+        expect(mocks.up).toHaveBeenCalledOnce();
+      });
+      it("reports AUTH_KEY_MISSING without a key", async () => {
+        delete env.TS_AUTHKEY;
+        await expect(ensureConnected({ env })).rejects.toMatchObject({ code: "AUTH_KEY_MISSING" });
+        expect(mocks.up).not.toHaveBeenCalled();
+        expect(ensureInstalled).not.toHaveBeenCalled();
+        expect(start).not.toHaveBeenCalled();
+      });
+    },
+  );
   it("uses the fallback key variable and the host agent in the default hostname", async () => {
     delete env.TS_AUTHKEY;
     env.TAILSCALE_AUTHKEY = "tskey-auth-FAKE-fallback";
