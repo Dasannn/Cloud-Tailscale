@@ -62,26 +62,29 @@ async function canonicalPath(path: string): Promise<string> {
   }
 }
 
+/** Find a work tree without Git, falling back to the canonical working directory. */
+export async function findProjectRoot(cwd: string): Promise<string> {
+  const directory = await realpath(cwd);
+  let project = directory;
+  while (true) {
+    try {
+      // A linked worktree has a .git file rather than a directory.
+      await lstat(join(project, ".git"));
+      return project;
+    } catch (cause) {
+      if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause;
+    }
+    const parent = dirname(project);
+    if (parent === project) return directory;
+    project = parent;
+  }
+}
+
 async function validateHome(home: string): Promise<void> {
   try {
     const cwd = await realpath(process.cwd());
     const resolvedHome = await canonicalPath(home);
-    let project = cwd;
-    while (true) {
-      try {
-        // A linked worktree has a .git file rather than a directory.
-        await lstat(join(project, ".git"));
-        break;
-      } catch (cause) {
-        if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause;
-      }
-      const parent = dirname(project);
-      if (parent === project) {
-        project = cwd;
-        break;
-      }
-      project = parent;
-    }
+    const project = await findProjectRoot(cwd);
     if (
       [home, resolvedHome].some((path) => containsPath(path, cwd) || containsPath(project, path))
     ) {
