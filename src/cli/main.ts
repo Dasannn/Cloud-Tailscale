@@ -1,13 +1,15 @@
 import { CtError } from "../core/errors.js";
 import { clearSecrets, printError, printResult, type Result } from "../core/output.js";
 import { registerEnvironmentSecrets } from "../core/secrets.js";
+import { setupCommand } from "./commands/setup.js";
+import { skillCommand } from "./commands/skill.js";
 
 export type Command = (args: string[]) => Result<unknown> | Promise<Result<unknown>>;
 
 const commandNames = ["up", "status", "down", "nc", "env", "ssh", "ssh-config", "skill", "setup"];
 
-export const commands: Readonly<Record<string, Command>> = Object.fromEntries(
-  commandNames.map((name) => [
+export const commands: Readonly<Record<string, Command>> = Object.fromEntries([
+  ...commandNames.map((name) => [
     name,
     () => {
       throw new CtError(
@@ -17,7 +19,9 @@ export const commands: Readonly<Record<string, Command>> = Object.fromEntries(
       );
     },
   ]),
-);
+  ["skill", skillCommand],
+  ["setup", setupCommand],
+]);
 
 function help(): Result {
   return {

@@ -22,7 +22,7 @@ describe("CLI dispatcher", () => {
       expect(stderr).not.toHaveBeenCalled();
     },
   );
-  it.each(["up", "status", "down", "nc", "env", "ssh", "ssh-config", "skill", "setup"])(
+  it.each(["up", "status", "down", "nc", "env", "ssh", "ssh-config"])(
     "returns NOT_IMPLEMENTED for %s",
     async (command) => {
       expect(await main([command])).toBe(1);
