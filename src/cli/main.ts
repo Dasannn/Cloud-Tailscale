@@ -1,9 +1,14 @@
 import { CtError } from "../core/errors.js";
 import { clearSecrets, printError, printResult, type Result } from "../core/output.js";
 import { registerEnvironmentSecrets } from "../core/secrets.js";
+import { downCommand } from "./commands/down.js";
+import { envCommand } from "./commands/env.js";
+import { ncCliCommand } from "./commands/nc.js";
 import { setupCommand } from "./commands/setup.js";
 import { skillCommand } from "./commands/skill.js";
 import { createSshCommands } from "./commands/ssh.js";
+import { statusCommand } from "./commands/status.js";
+import { upCommand } from "./commands/up.js";
 
 export interface CommandResult extends Result<unknown> {
   exitCode?: number;
@@ -32,6 +37,14 @@ export const commands: Readonly<Record<string, Command>> = Object.fromEntries([
 ]);
 
 Object.assign(commands, createSshCommands());
+
+Object.assign(commands, {
+  up: upCommand,
+  status: statusCommand,
+  down: downCommand,
+  nc: ncCliCommand,
+  env: envCommand,
+});
 
 function help(): Result {
   return {

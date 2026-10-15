@@ -25,6 +25,8 @@ export function mask(text: string): string {
     // Also hide truncated blocks: a failed subprocess may output only part of a key.
     "-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----[\\s\\S]*?(?:-----END (?:[A-Z0-9]+ )*PRIVATE KEY-----|$)",
     "tskey-[A-Za-z0-9_-]+",
+    // Go's proxy diagnostics can include URL userinfo, including encoded passwords.
+    "(?<=://)[^\\s/]+(?=@)",
     ...[...secrets]
       .flatMap((value) => [value, JSON.stringify(value).slice(1, -1)])
       .map((value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),

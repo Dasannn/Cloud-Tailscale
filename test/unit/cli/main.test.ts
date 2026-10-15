@@ -2,6 +2,22 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { commands, main } from "../../../src/cli/main.js";
 import { CtError } from "../../../src/core/errors.js";
 
+vi.mock("../../../src/cli/commands/up.js", () => ({
+  upCommand: vi.fn(() => ({ ok: true, message: "FAKE up", data: {} })),
+}));
+vi.mock("../../../src/cli/commands/status.js", () => ({
+  statusCommand: vi.fn(() => ({ ok: true, message: "FAKE status", data: {} })),
+}));
+vi.mock("../../../src/cli/commands/down.js", () => ({
+  downCommand: vi.fn(() => ({ ok: true, message: "FAKE down", data: {} })),
+}));
+vi.mock("../../../src/cli/commands/nc.js", () => ({
+  ncCliCommand: vi.fn(() => ({ ok: true, message: "", data: { streamed: true } })),
+}));
+vi.mock("../../../src/cli/commands/env.js", () => ({
+  envCommand: vi.fn(() => ({ ok: true, message: "FAKE env", data: {} })),
+}));
+
 let stdout: ReturnType<typeof vi.spyOn>;
 let stderr: ReturnType<typeof vi.spyOn>;
 beforeEach(() => {
@@ -23,12 +39,12 @@ describe("CLI dispatcher", () => {
       expect(stderr).not.toHaveBeenCalled();
     },
   );
-  it.each(["up", "status", "down", "nc", "env"])(
-    "returns NOT_IMPLEMENTED for %s",
+  it.each(["up", "status", "down", "env"])(
+    "registers the Tailscale %s command",
     async (command) => {
-      expect(await main([command])).toBe(1);
-      expect(stderr).toHaveBeenCalledWith(expect.stringContaining("NOT_IMPLEMENTED"));
-      expect(stdout).not.toHaveBeenCalled();
+      expect(await main([command])).toBe(0);
+      expect(stdout).toHaveBeenCalledWith(`FAKE ${command}\n`);
+      expect(stderr).not.toHaveBeenCalled();
     },
   );
   it("uses the same result envelope for JSON help and errors", async () => {
@@ -37,10 +53,10 @@ describe("CLI dispatcher", () => {
       ok: true,
       data: { commands: expect.arrayContaining(["up"]) },
     });
-    expect(await main(["up", "--json"])).toBe(1);
+    expect(await main(["ssh", "--json"])).toBe(1);
     expect(JSON.parse(String(stderr.mock.calls[0][0]))).toMatchObject({
       ok: false,
-      data: { code: "NOT_IMPLEMENTED", next: expect.any(String) },
+      data: { code: "INVALID_ARGUMENT", next: expect.any(String) },
     });
   });
   it.each(["FAKE-command", "toString", "__proto__"])(
