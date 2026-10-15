@@ -30,10 +30,24 @@ masked reason, and next step instead.
 
 ## Setup completed but the session is offline
 
-A setup daemon may not survive into the agent session. Run `cts up` again,
-then check `cts status`. Missing credentials defer setup's connection step;
-they do not establish a connection. A setup report with any other failed
-step exits nonzero, even if skill installation succeeded.
+In Claude Code on the web, the setup script may not see the environment's
+secrets, and its daemon may not survive into the agent session. With the
+auth key available in the session, the first connection command (`cts ssh`,
+`cts nc`, `cts env`, or `cts ssh-config`) connects automatically in about
+10 to 15 seconds. You can also run `cts up`, then check `cts status`;
+`status` only reports state. After `cts down`, status shows the installed
+version and stopped state without old node details or peers.
+
+Read `<home>/setup.log` to see what setup did. Setup prints its exact path:
+`$CLOUD_TAILSCALE_HOME/setup.log` when overridden, otherwise
+`~/.cloud-tailscale/setup.log` with a writable home, or
+`$TMPDIR/cloud-tailscale/setup.log` as a fallback. Each setup run replaces
+this private file (0600) with its masked, plain-text step report, a UTC
+timestamp, and SET/UNSET markers for credential variables; it never records
+their values. UNSET during setup can explain why setup deferred connection
+even when the secret is available later in the session. Missing credentials
+are nonfatal during setup. Other failed steps exit nonzero, even if skill
+installation succeeded.
 
 On Codex Cloud, enable agent internet access with the Tailscale hosts above
 and POST allowed. A successful npm installation does not prove that the

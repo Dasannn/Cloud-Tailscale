@@ -58,9 +58,21 @@ setup fails; review the setup output and check `cts status` in the session.
 
 Setup runs `up`, installs the skill into
 `~/.claude/skills/cloud-tailscale/SKILL.md` on a Claude Code host, and reports
-both steps. A missing auth key defers the connection and exits successfully
-if skill installation succeeds. Configure the secret, then have the agent
-run `cts up` later. Other failures are reported with a nonzero exit status.
+both steps. It also replaces `<home>/setup.log` with a masked, plain-text
+report (mode 0600), including a UTC timestamp and whether each credential
+variable was SET or UNSET, never its value. `<home>` is
+`CLOUD_TAILSCALE_HOME`, otherwise `~/.cloud-tailscale` when writable, or
+`$TMPDIR/cloud-tailscale` as a fallback; setup prints the log's exact path.
+A missing auth key defers the connection and exits successfully if skill
+installation succeeds. Other failures are reported with a nonzero exit
+status.
+
+In Claude Code on the web, the setup script may not see the environment's
+secrets, and a daemon started during setup may not survive into the agent
+session. Check `setup.log` to see what setup did. With the auth key available
+in the session, the first connection command (`cts ssh`, `cts nc`, `cts env`,
+or `cts ssh-config`) connects automatically in about 10 to 15 seconds.
+Running `cts up` explicitly does the same; `cts status` only reports state.
 
 Have the agent check the connection and run a command on a peer:
 
@@ -74,6 +86,6 @@ This does not put `cts` on PATH for later commands; use
 `npx -y cloud-tailscale` wherever the examples say `cts`, or follow the
 skill's installation instructions.
 
-If the daemon did not survive setup, run `cts up` again. The node's state
-stays in memory. Run `cts down` to log out and stop it immediately. See
-[troubleshooting](troubleshooting.md) for error codes and recovery steps.
+The node's state stays in memory. Run `cts down` to log out and stop it
+immediately. See [troubleshooting](troubleshooting.md) for error codes and
+recovery steps.

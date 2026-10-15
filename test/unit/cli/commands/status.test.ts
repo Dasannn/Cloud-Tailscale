@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { statusCommand } from "../../../../src/cli/commands/status.js";
+import { render } from "../../../../src/core/output.js";
 import { TailscaleClient } from "../../../../src/tailscale/client.js";
 import { isRunning, readConfig } from "../../../../src/tailscale/daemon.js";
 import { findInstalled } from "../../../../src/tailscale/install.js";
@@ -70,6 +71,60 @@ describe("status command", () => {
     expect(result.message).toContain("raspberry5\t100.64.0.20\tonline");
     expect(result.message).toContain("offline-peer\t100.64.0.30\toffline");
   });
+  it.each([
+    { daemonRunning: false, state: "Running" },
+    { daemonRunning: true, state: "NeedsLogin" },
+    { daemonRunning: true, state: "Stopped" },
+  ])(
+    "clears stale session details when daemonRunning=$daemonRunning and backend=$state",
+    async ({ daemonRunning, state }) => {
+      const status = JSON.parse(
+        await readFile(
+          new URL("../../../fixtures/tailscale/status-running.json", import.meta.url),
+          "utf8",
+        ),
+      );
+      status.BackendState = state;
+      vi.mocked(findInstalled).mockResolvedValue({ version: "1.104.1" } as never);
+      vi.mocked(isRunning).mockResolvedValue(daemonRunning);
+      vi.mocked(readConfig).mockResolvedValue({
+        hostname: "FAKE-stale-hostname",
+        mode: "userspace",
+      } as never);
+      mocks.status.mockResolvedValue(status);
+      const result = await statusCommand();
+      expect(result.data).toEqual({
+        installed: true,
+        version: "1.104.1",
+        daemonRunning,
+        connected: false,
+        state: "Stopped",
+        name: null,
+        ips: [],
+        mode: null,
+        derp: null,
+        peers: [],
+      });
+      expect(result.message).toBe(
+        `Tailscale: installed (1.104.1); daemon ${daemonRunning ? "running" : "stopped"}; Stopped.`,
+      );
+      for (const output of [render(result), render(result, true)]) {
+        for (const stale of [
+          "FAKE-stale-hostname",
+          status.Self.HostName,
+          ...status.TailscaleIPs,
+          status.Self.Relay,
+          "raspberry5",
+          "offline-peer",
+        ]) {
+          expect(output).not.toContain(stale);
+        }
+      }
+      expect(hasConnectedDerp).not.toHaveBeenCalled();
+      expect(readConfig).not.toHaveBeenCalled();
+      if (!daemonRunning) expect(TailscaleClient).not.toHaveBeenCalled();
+    },
+  );
   it("uses status TUN as authoritative rather than an old config mode", async () => {
     vi.mocked(findInstalled).mockResolvedValue({ version: "1.104.1" } as never);
     vi.mocked(isRunning).mockResolvedValue(true);
