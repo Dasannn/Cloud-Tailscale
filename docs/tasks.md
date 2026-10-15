@@ -132,4 +132,30 @@ Done: tests for `skill.ts` and `setup` step reporting.
 
 ## Phase 2: Integration and live verification
 
-Tasks are written when Phase 1 is merged.
+### 2.1 Wiring
+
+Files: `src/cli/main.ts`, `src/cli/commands/{ssh,ssh-config,setup,nc,env}.ts`,
+`src/tailscale/connect.ts`, `src/core/http.ts`, tests.
+
+- Replace the `ssh` default stream factory with `tailscale nc <host> <port>`
+  from `src/tailscale/client.ts`; propagate an `nc` failure (peer offline,
+  unknown name) as a clear `CtError`.
+- Replace the `setup` default `up` with the real `up` from
+  `src/tailscale/connect.ts`.
+- FR-9 auto-up: `nc`, `ssh`, `ssh-config`, and `env` run `up` first when the
+  daemon is not connected and an auth key is set; without a key they fail
+  with `AUTH_KEY_MISSING`.
+- `ssh-config` lists online peers from `tailscale status --json`.
+- Remove the obsolete `NOT_IMPLEMENTED` placeholders from `main.ts`.
+- Suppress Undici's `EnvHttpProxyAgent` experimental warning (code
+  `UNDICI-EHPA`) so it never reaches the agent's output; other warnings
+  still print.
+
+Done: unit tests cover the wiring and auto-up paths; checks pass.
+
+### 2.2 Live verification
+
+Run by the lead in a Claude Code on the web session whose environment has
+`TS_AUTHKEY`, `TS_SSH_PASSWORD`, and `TS_SSH_USER`, with the setup script
+installing this branch from GitHub. Verify acceptance criteria 1, 2, 4, and
+5 of `docs/spec.md`, and record the results in `docs/decisions/`.
