@@ -1,0 +1,3 @@
+To authenticate, visit:
+
+	https://login.tailscale.com/a/FAKE

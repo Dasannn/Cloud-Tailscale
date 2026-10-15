@@ -73,7 +73,8 @@ Files: `src/tailscale/{install,daemon,client,connect,diagnose}.ts`,
   the child process; always passes `--socket`.
 - `connect.ts`: FR-4 including idempotency, key file 0600 deleted in
   `finally`, default hostname `<host-agent>-cloud-<4 hex>`, wait for
-  `Running` plus home DERP, timeout.
+  `Running` plus a confirmed DERP connection and no relay health warnings,
+  timeout; check saved mode/version before reusing an unconnected daemon.
 - `diagnose.ts`: classify from the CLI error text and log tail:
   invalid/expired key → `AUTH_KEY_REJECTED`; control connection failures →
   `CONTROL_UNREACHABLE`; no DERP home → `DERP_UNREACHABLE`; each with the

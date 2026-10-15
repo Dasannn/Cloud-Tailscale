@@ -1,0 +1,30 @@
+{
+  "Version": "1.104.1",
+  "TUN": false,
+  "BackendState": "Running",
+  "TailscaleIPs": ["100.64.0.10", "fd7a:115c:a1e0::10"],
+  "Self": {
+    "HostName": "claude-cloud-3f9a",
+    "DNSName": "claude-cloud-3f9a.example.ts.net.",
+    "TailscaleIPs": ["100.64.0.10", "fd7a:115c:a1e0::10"],
+    "Online": true,
+    "Relay": "nyc"
+  },
+  "Peer": {
+    "nodekey:FAKE-online": {
+      "HostName": "raspberry5",
+      "DNSName": "raspberry5.example.ts.net.",
+      "TailscaleIPs": ["100.64.0.20"],
+      "Online": true,
+      "Relay": "nyc"
+    },
+    "nodekey:FAKE-offline": {
+      "HostName": "offline-peer",
+      "DNSName": "offline-peer.example.ts.net.",
+      "TailscaleIPs": ["100.64.0.30"],
+      "Online": false
+    }
+  },
+  "CurrentTailnet": { "MagicDNSSuffix": "example.ts.net" },
+  "Health": []
+}

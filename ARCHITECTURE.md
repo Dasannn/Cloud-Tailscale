@@ -40,6 +40,8 @@ src/
   tailscale/
     install.ts       # resolve version, download, verify SHA-256, extract (FR-3)
     daemon.ts        # start/stop tailscaled with mode, socket, state, proxy env
+    log.ts           # masked line writer, detached launch, DERP handshake tracking
+    log-writer.ts    # detached Node helper owning tailscaled's output pipes
     client.ts        # thin wrapper over the `tailscale` CLI with --socket:
                      # up, status --json, logout, nc
     connect.ts       # `up` orchestration: idempotency, key file, wait for
@@ -88,19 +90,43 @@ The portable home (FR-2), mode 0700:
 1. `secrets.ts` reads `TS_AUTHKEY`; missing → `CtError(AUTH_KEY_MISSING)`.
 2. `install.ts` ensures the binaries (GET `pkgs.tailscale.com/stable/?mode=json`,
    then the tarball and its `.sha256`; verify; extract with `tar`).
-3. If the daemon socket answers and the backend is `Running`, report and stop.
+3. If the daemon socket answers, the backend is `Running`, a DERP handshake is
+   confirmed, and status health has no DERP/relay warning, report and stop.
+   Otherwise compare the running daemon's mode and version in `config.json`
+   with the selected mode and any CLI/environment version pin. Install the
+   requested version and restart an unconnected daemon when they differ or
+   its configuration is missing.
 4. `host.ts` picks the mode. `daemon.ts` spawns `tailscaled` detached, with
    `--state=mem:`, `--statedir`, `--socket`, `--socks5-server` and
    `--outbound-http-proxy-listen` on `127.0.0.1:<port>`, and
    `--tun=userspace-networking` in userspace mode. The child environment
    keeps `HTTPS_PROXY`/`NO_PROXY` and sets `SSL_CERT_FILE` from the
-   environment's CA bundle when present.
+   environment's CA bundle when present. Every `TS_DEBUG_*` setting is removed.
+   `--verbose=0` overrides inherited verbosity, and `--no-logs-no-support`
+   disables Tailscale's separate unmasked logtail disk buffer and uploads
+   ([upstream log policy](https://github.com/tailscale/tailscale/blob/v1.104.1/logpolicy/logpolicy.go)).
+   A detached Node helper owns the daemon's stdout/stderr pipes and writes
+   complete, masked lines to the private log. It survives the launching CLI;
+   credentials reach it only over an anonymous bootstrap pipe. Auth keys,
+   registered secrets, PEM bodies, and URL userinfo are masked before disk
+   writes, including across output chunks. Authenticated proxy URLs remain
+   available to Go so proxies requiring authentication continue to work.
 5. `connect.ts` writes the key to a 0600 file and runs
    `tailscale up --auth-key=file:<path> --hostname=<name> [--accept-routes]`,
    then deletes the file in a `finally`.
-6. Polls `tailscale status --json` until `BackendState == Running` and a home
-   DERP region is set, with a timeout; on timeout `diagnose.ts` reads the log
-   tail to choose the error.
+6. Polls `tailscale status --json` until `BackendState == Running`, a home
+   DERP region is set, and health contains no DERP/relay warnings. It also
+   requires the session log's DERP handshake acknowledgement, invalidated by
+   a later receive error or connection close. This is the same predicate used
+   by idempotent `up` and `status`. In [Tailscale 1.104.1's reader](https://github.com/tailscale/tailscale/blob/v1.104.1/wgengine/magicsock/derp.go),
+   `magicsock: derp-N connected; connGen=…` is logged only after receiving
+   `derp.ServerInfoMessage`. This positive signal avoids the startup window
+   before [relay health warnings become visible](https://github.com/tailscale/tailscale/blob/v1.104.1/health/warnings.go)
+   (10 seconds). The session log is streamed, so an older handshake remains
+   usable without loading the entire file into memory. On timeout,
+   `diagnose.ts` classifies destination/stage errors before generic proxy/TLS
+   errors, directing DERP failures to DERP hosts and control failures to
+   control hosts.
 
 ### `ssh`
 
