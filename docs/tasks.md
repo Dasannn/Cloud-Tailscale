@@ -197,3 +197,23 @@ prefix gives a working `cts --version`, `cts --help`, and
 
 The owner signs in with `npm login --auth-type=web` from the lead's session;
 the lead publishes 0.1.0 and the owner configures the trusted publisher.
+
+## Phase 2 follow-up (from live verification)
+
+### 2.3 Setup diagnostics and status polish
+
+Files: `src/cli/commands/{setup,status}.ts`, `src/core/paths.ts`,
+`docs/guides/{claude-code,troubleshooting}.md`, `skill/SKILL.md`, tests.
+
+- `setup` also writes its step report (masked, plain text, with a UTC
+  timestamp and which secret variables were SET or UNSET, never values) to
+  `<home>/setup.log` (0600), replacing the previous file.
+- `status` after `down` (daemon stopped or logged out) shows no stale node
+  name, IPs, or DERP region; only installed version and stopped state.
+- Guide and skill: in Claude Code on the web the setup script may not see
+  the environment's secrets or keep the daemon alive; the first connection
+  command (`cts ssh`, `cts nc`, `cts env`, `cts ssh-config`) or `cts up`
+  connects in about 10 to 15 seconds. `setup.log` explains what setup did.
+
+Done: tests for the log file (content, masking, permissions) and the
+stopped-status output; checks pass.
