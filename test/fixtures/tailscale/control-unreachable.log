@@ -1,0 +1,1 @@
+control: failed to connect to https://controlplane.tailscale.com: proxyconnect tcp: connection refused
