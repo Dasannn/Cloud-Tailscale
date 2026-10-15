@@ -12,6 +12,7 @@ export interface RuntimePaths {
   socketFile: string;
   pidFile: string;
   logFile: string;
+  setupLogFile: string;
   knownHostsFile: string;
   configFile: string;
 }
@@ -38,6 +39,7 @@ export function getPaths(home: string): RuntimePaths {
     socketFile: join(runDir, "tailscaled.sock"),
     pidFile: join(runDir, "tailscaled.pid"),
     logFile: join(runDir, "tailscaled.log"),
+    setupLogFile: join(home, "setup.log"),
     knownHostsFile: join(home, "known_hosts"),
     configFile: join(home, "config.json"),
   };

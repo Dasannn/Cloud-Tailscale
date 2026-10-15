@@ -74,6 +74,7 @@ describe("runtime layout and permissions", () => {
       socketFile: "/FAKE-home/run/tailscaled.sock",
       pidFile: "/FAKE-home/run/tailscaled.pid",
       logFile: "/FAKE-home/run/tailscaled.log",
+      setupLogFile: "/FAKE-home/setup.log",
       knownHostsFile: "/FAKE-home/known_hosts",
       configFile: "/FAKE-home/config.json",
     });

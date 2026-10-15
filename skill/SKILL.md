@@ -22,7 +22,17 @@ npm install -g cloud-tailscale && cts setup || true
 
 This puts `cts` on PATH for the session and installs this skill. Check
 `cts status` afterward: `|| true` lets the session start even if setup
-fails. If the daemon did not survive setup, run `cts up` again.
+fails. In Claude Code on the web, setup may not see the environment's
+secrets or keep its daemon alive into the agent session. With the auth key
+available in the session, the first `cts ssh`, `cts nc`, `cts env`, or
+`cts ssh-config` connects automatically in about 10 to 15 seconds;
+`cts up` connects explicitly. `cts status` only reports state.
+
+Read `<home>/setup.log` for setup's masked, plain-text step report, UTC
+timestamp, and SET/UNSET credential markers, never values. Setup prints the
+path and replaces this private file (0600) each run. The home is
+`CLOUD_TAILSCALE_HOME`, otherwise `~/.cloud-tailscale` when writable, or
+`$TMPDIR/cloud-tailscale` as a fallback.
 
 Alternatively, use `npx -y cloud-tailscale setup` (or
 `npx -y cloud-tailscale up` to connect only). For later commands, replace
@@ -50,8 +60,9 @@ npm_config_cache=/tmp/npm-cache npm install --prefix /tmp/cts cloud-tailscale
   ordinary tools cannot resolve MagicDNS names directly; use `cts ssh`,
   `cts nc`, or the loopback proxy described by `cts env` for tailnet requests.
   Preserve the environment's own HTTPS proxy settings.
-- If the connection disappeared after setup, run `cts up` again using the
-  environment's auth key. `cts down` logs out and stops the daemon.
+- Connection commands reconnect using the environment's auth key when
+  needed. `cts down` logs out and stops the daemon; `cts status` then shows
+  the installed version and stopped state without stale node details.
 
 Never ask for, accept, or paste auth keys, passwords, or private keys into
 chat, command arguments, or the repository. Tell the user to configure

@@ -18,11 +18,14 @@ export async function statusCommand(args: string[] = []): Promise<Result> {
   const paths = await ensurePaths();
   const installation = await findInstalled(paths);
   const daemonRunning = await isRunning(paths);
-  const config = await readConfig(paths);
   let status: TailscaleStatus | undefined;
   if (daemonRunning && installation) {
     status = await new TailscaleClient(installation, paths).statusJson();
   }
+  const stopped =
+    !daemonRunning || status?.BackendState === "Stopped" || status?.BackendState === "NeedsLogin";
+  if (stopped) status = undefined;
+  const config = stopped ? undefined : await readConfig(paths);
   const peers = Object.values(status?.Peer ?? {})
     .map((peer) => ({
       name: peer.HostName || peer.DNSName?.replace(/\.$/, "") || "unknown",
@@ -36,7 +39,7 @@ export async function statusCommand(args: string[] = []): Promise<Result> {
     version: installation?.version ?? null,
     daemonRunning,
     connected: status ? connected(status, await hasConnectedDerp(paths.logFile)) : false,
-    state: status?.BackendState ?? (daemonRunning ? "Unknown" : "Stopped"),
+    state: stopped ? "Stopped" : (status?.BackendState ?? "Unknown"),
     name: status?.Self?.HostName ?? config?.hostname ?? null,
     ips: status?.TailscaleIPs ?? status?.Self?.TailscaleIPs ?? [],
     mode:
@@ -65,7 +68,9 @@ export async function statusCommand(args: string[] = []): Promise<Result> {
                 `${peer.name}\t${peer.ips.join(", ")}\t${peer.online ? "online" : "offline"}`,
             ),
           ]
-        : ["No peers reported."]),
+        : stopped
+          ? []
+          : ["No peers reported."]),
     ].join("\n"),
     data,
   };

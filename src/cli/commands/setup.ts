@@ -1,7 +1,10 @@
+import { mkdtemp, rename, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { CtError, type ErrorCode } from "../../core/errors.js";
 import { detectHost } from "../../core/host.js";
-import type { Result } from "../../core/output.js";
-import { getAuthKey } from "../../core/secrets.js";
+import { mask, type Result } from "../../core/output.js";
+import { ensurePaths, type RuntimePaths } from "../../core/paths.js";
+import { getAuthKey, registerEnvironmentSecrets } from "../../core/secrets.js";
 import { installSkill, type SkillInstallation } from "../../core/skill.js";
 import { connect } from "../../tailscale/connect.js";
 import { connectionData } from "./up.js";
@@ -19,6 +22,35 @@ export interface SetupDependencies {
   env?: NodeJS.ProcessEnv;
   up?: () => Result<unknown> | Promise<Result<unknown>>;
   installSkill?: () => Promise<SkillInstallation>;
+}
+
+const secretVariables = [
+  "TS_AUTHKEY",
+  "TAILSCALE_AUTHKEY",
+  "TS_SSH_KEY",
+  "TS_SSH_KEY_FILE",
+  "TS_SSH_PASSWORD",
+  "TS_SSH_USER",
+] as const;
+
+async function writeSetupLog(paths: RuntimePaths, report: string): Promise<void> {
+  let temporary: string | undefined;
+  try {
+    temporary = await mkdtemp(join(paths.home, ".setup-"));
+    const file = join(temporary, "setup.log");
+    await writeFile(file, mask(report), { mode: 0o600, flag: "wx" });
+    // Replace the previous report without following a link or retaining old permissions.
+    await rename(file, paths.setupLogFile);
+  } catch (cause) {
+    throw new CtError(
+      "HOME_UNAVAILABLE",
+      `Cannot write the setup report to ${paths.setupLogFile}.`,
+      "Set CLOUD_TAILSCALE_HOME to a private writable directory outside the project, then retry cts setup.",
+      { cause },
+    );
+  } finally {
+    if (temporary) await rm(temporary, { recursive: true, force: true });
+  }
 }
 
 async function defaultUp(env: NodeJS.ProcessEnv): Promise<Result> {
@@ -51,7 +83,7 @@ function failedStep(name: SetupStep["name"], cause: unknown): SetupStep {
 export async function setupCommand(
   args: string[],
   dependencies: SetupDependencies = {},
-): Promise<Result<{ steps: SetupStep[] }>> {
+): Promise<Result<{ steps: SetupStep[]; setupLogFile: string }>> {
   if (args.length !== 0) {
     throw new CtError(
       "INVALID_ARGUMENT",
@@ -60,6 +92,9 @@ export async function setupCommand(
     );
   }
   const env = dependencies.env ?? process.env;
+  registerEnvironmentSecrets(env);
+  const timestamp = new Date().toISOString();
+  const secretStatus = secretVariables.map((name) => `${name}: ${env[name] ? "SET" : "UNSET"}`);
   const steps: SetupStep[] = [];
   if (!getAuthKey(env)) {
     steps.push(
@@ -111,15 +146,15 @@ export async function setupCommand(
   }
 
   const ok = steps.every((step) => step.status !== "failed");
-  return {
-    ok,
-    message: [
-      ok ? "Cloud-Tailscale setup completed." : "Cloud-Tailscale setup needs attention.",
-      ...steps.map(
-        (step) =>
-          `${step.name}: ${step.status}${step.code ? ` (${step.code})` : ""} — ${step.message}${step.next ? ` Next: ${step.next}` : ""}`,
-      ),
-    ].join("\n"),
-    data: { steps },
-  };
+  const paths = await ensurePaths(env);
+  const message = [
+    ok ? "Cloud-Tailscale setup completed." : "Cloud-Tailscale setup needs attention.",
+    ...steps.map(
+      (step) =>
+        `${step.name}: ${step.status}${step.code ? ` (${step.code})` : ""} — ${step.message}${step.next ? ` Next: ${step.next}` : ""}`,
+    ),
+    `Setup log: ${paths.setupLogFile}.`,
+  ].join("\n");
+  await writeSetupLog(paths, [`UTC: ${timestamp}`, ...secretStatus, "", message, ""].join("\n"));
+  return { ok, message, data: { steps, setupLogFile: paths.setupLogFile } };
 }
