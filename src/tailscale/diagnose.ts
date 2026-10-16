@@ -35,12 +35,21 @@ export function hasDerpWarning(status: TailscaleStatus): boolean {
 
 /** Return actionable errors without copying subprocess output or login URLs into logs. */
 export function diagnose(text: string, status?: TailscaleStatus): CtError {
+  // An explicit key rejection is stronger evidence than transport errors from
+  // other attempts in the same log window.
+  if (
+    /(?:invalid|expired|revoked|rejected|not valid)[^\n]*(?:auth.?key|key)|(?:auth.?key|\bkey\b)[^\n]*(?:invalid|expired|revoked|rejected|not valid|not found)/i.test(
+      text,
+    )
+  ) {
+    return authKeyError();
+  }
   // Transport rejections can trigger logged-out status or interactive login before
   // the key is evaluated. Match the destination on the same line as the rejection.
   const lines = text.split(/\r?\n/);
   const transportFailures = lines.filter(
     (line) =>
-      /unexpected HTTP response:\s*[45]\d{2}\b|all connection attempts failed|proxyconnect tcp/i.test(
+      /failed|failure|timeout|timed out|deadline exceeded|refused|unreachable|error|denied|x509|unknown authority|bad certificate|does not look like a TLS handshake|server gave HTTP response to HTTPS client|no such host|\bEOF\b|not connected|could not connect|unable to connect|unexpected HTTP response:\s*[45]\d{2}\b|proxyconnect tcp/i.test(
         line,
       ) ||
       ((/\bCONNECT\b/.test(line) || /\bproxy\s+connect\b/i.test(line)) &&
@@ -48,24 +57,13 @@ export function diagnose(text: string, status?: TailscaleStatus): CtError {
   );
   const derpTransportFailures = transportFailures.filter((line) => derpDestination.test(line));
   if (derpTransportFailures.length) {
-    return derpError(proxyRejectionStatus(derpTransportFailures));
+    return derpError(proxyRejection(derpTransportFailures));
   }
   const controlTransportFailures = transportFailures.filter((line) =>
     controlDestination.test(line),
   );
   if (controlTransportFailures.length) {
-    return controlError(proxyRejectionStatus(controlTransportFailures));
-  }
-  if (
-    /(?:invalid|expired|revoked|rejected|not valid)[^\n]*(?:auth.?key|key)|(?:auth.?key)[^\n]*(?:invalid|expired|revoked|rejected|not found)|To authenticate, visit:|Logged out\./i.test(
-      text,
-    )
-  ) {
-    return new CtError(
-      "AUTH_KEY_REJECTED",
-      "Tailscale rejected the auth key or requested an interactive login.",
-      "Create a reusable, ephemeral, pre-approved, tagged auth key in the Tailscale admin console and replace TS_AUTHKEY (or TAILSCALE_AUTHKEY) in the environment's secrets. Allow login.tailscale.com and controlplane.tailscale.com.",
-    );
+    return controlError(proxyRejection(controlTransportFailures));
   }
   if (status?.BackendState === "NeedsMachineAuth") {
     return new CtError(
@@ -74,18 +72,14 @@ export function diagnose(text: string, status?: TailscaleStatus): CtError {
       "Approve the device in the Tailscale admin console or use a pre-approved, ephemeral, tagged auth key from the environment's secrets.",
     );
   }
-  // Match stage/destination within each line before a generic proxy/TLS error.
-  // A DERP CONNECT failure says nothing about reachability of the control hosts.
-  const failures = lines.filter((line) =>
-    /failed|failure|timeout|timed out|deadline exceeded|refused|unreachable|error|denied|x509|unknown authority|bad certificate|does not look like a TLS handshake|server gave HTTP response to HTTPS client|no such host|\bEOF\b|not connected|could not connect|unable to connect/i.test(
-      line,
-    ),
-  );
-  if ((status && hasDerpWarning(status)) || failures.some((line) => derpDestination.test(line))) {
-    return derpError();
+  if (
+    status?.BackendState === "NeedsLogin" ||
+    /To authenticate, visit:|Logged out\.|\bNeedsLogin\b|\bLoginInteractive\b/i.test(text)
+  ) {
+    return authKeyError();
   }
-  if (failures.some((line) => controlDestination.test(line))) {
-    return controlError();
+  if (status && hasDerpWarning(status)) {
+    return derpError();
   }
   if (status?.BackendState === "Running" && !status.Self?.Relay) {
     return derpError();
@@ -112,22 +106,59 @@ export function diagnose(text: string, status?: TailscaleStatus): CtError {
   );
 }
 
-function proxyRejectionStatus(lines: string[]): string | undefined {
+function authKeyError(): CtError {
+  return new CtError(
+    "AUTH_KEY_REJECTED",
+    "Tailscale rejected the auth key or requested an interactive login.",
+    "Create a reusable, ephemeral, pre-approved, tagged auth key in the Tailscale admin console and replace TS_AUTHKEY (or TAILSCALE_AUTHKEY) in the environment's secrets. Allow login.tailscale.com and controlplane.tailscale.com.",
+  );
+}
+
+type ProxyRejection = { stage: "connect" | "upgrade"; status: string };
+
+function proxyRejection(lines: string[]): ProxyRejection | undefined {
   for (const line of lines) {
-    const code =
-      /(?:unexpected HTTP response:\s*|(?:proxyconnect tcp:|\bCONNECT\b).*?\s)(403|405|407)\b/i.exec(
+    // Read the first CONNECT status, including a successful 200, so a later
+    // in-tunnel HTTP rejection on the same line is not blamed on CONNECT.
+    const connectStatus =
+      /(?:proxyconnect tcp:|\bCONNECT\b).*?\s(?:HTTP\/\d(?:\.\d)?\s+)?([1-5]\d{2})\b/i.exec(
         line,
       )?.[1];
-    if (code) return code;
+    if (connectStatus && /^(403|405|407)$/.test(connectStatus)) {
+      return { stage: "connect", status: connectStatus };
+    }
+    const upgradeStatus = /unexpected HTTP response:\s*(403|405|407)\b/i.exec(line)?.[1];
+    if (upgradeStatus) return { stage: "upgrade", status: upgradeStatus };
   }
   return undefined;
 }
 
-function controlError(httpStatus?: string): CtError {
-  if (httpStatus) {
+function proxyConnectError(destination: "control" | "DERP relay", httpStatus: string): CtError {
+  const code = destination === "control" ? "CONTROL_UNREACHABLE" : "DERP_UNREACHABLE";
+  const hosts =
+    destination === "control"
+      ? "controlplane.tailscale.com, login.tailscale.com and log.tailscale.com"
+      : "*.tailscale.com DERP hosts";
+  if (httpStatus === "407") {
+    return new CtError(
+      code,
+      `The egress proxy requires authentication for the CONNECT tunnel to Tailscale's ${destination} host (HTTP 407).`,
+      "Check HTTPS_PROXY credentials and the proxy's authentication requirements, then retry up.",
+    );
+  }
+  return new CtError(
+    code,
+    `The egress proxy refused the CONNECT tunnel to Tailscale's ${destination} host (HTTP ${httpStatus}).`,
+    `Allow HTTPS CONNECT tunnels to ${hosts} in the environment's network policy.`,
+  );
+}
+
+function controlError(rejection?: ProxyRejection): CtError {
+  if (rejection?.stage === "connect") return proxyConnectError("control", rejection.status);
+  if (rejection) {
     return new CtError(
       "CONTROL_UNREACHABLE",
-      `The egress proxy refused Tailscale's control connection (HTTP ${httpStatus}) after CONNECT.`,
+      `The egress proxy refused Tailscale's control connection (HTTP ${rejection.status}) after CONNECT.`,
       "The environment's network policy must allow HTTPS to controlplane.tailscale.com including HTTP protocol upgrades: Tailscale's control protocol upgrades an HTTPS POST to /ts2021. Some providers' proxies block upgrades; see docs/guides/troubleshooting.md.",
     );
   }
@@ -138,11 +169,12 @@ function controlError(httpStatus?: string): CtError {
   );
 }
 
-function derpError(httpStatus?: string): CtError {
-  if (httpStatus) {
+function derpError(rejection?: ProxyRejection): CtError {
+  if (rejection?.stage === "connect") return proxyConnectError("DERP relay", rejection.status);
+  if (rejection) {
     return new CtError(
       "DERP_UNREACHABLE",
-      `The egress proxy refused Tailscale's DERP relay connection (HTTP ${httpStatus}).`,
+      `The egress proxy refused Tailscale's DERP relay connection (HTTP ${rejection.status}).`,
       "The environment's network policy must allow HTTPS to *.tailscale.com DERP hosts including HTTP protocol upgrades. Some providers' proxies block upgrades; see docs/guides/troubleshooting.md.",
     );
   }
