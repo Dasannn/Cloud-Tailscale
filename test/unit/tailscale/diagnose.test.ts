@@ -19,6 +19,90 @@ describe("connection diagnostics", () => {
     expect(error.next).toContain(next);
     expect(error.message).not.toContain("https://login.tailscale.com/a/");
   });
+  it.each([
+    "",
+    "Logged out.",
+    "To authenticate, visit:",
+    "invalid key: unable to validate API key",
+  ])("prioritizes the observed control upgrade rejection over auth text: %s", async (authText) => {
+    const text = `${await fixture("control-upgrade-rejected.log")}\n${authText}`;
+    const error = diagnose(text);
+    expect(error).toMatchObject({
+      code: "CONTROL_UNREACHABLE",
+      message: expect.stringContaining("HTTP 403"),
+      next: expect.stringContaining("controlplane.tailscale.com"),
+    });
+    expect(error.message).toContain("after CONNECT");
+    expect(error.next).toContain("upgrades");
+    expect(error.next).toContain("/ts2021");
+    expect(error.next).toContain("docs/guides/troubleshooting.md");
+  });
+  it.each([403, 405, 407])("explains control proxy policy rejections (HTTP %s)", (code) => {
+    const error = diagnose(`control: unexpected HTTP response: ${code}\nLogged out.`, {
+      BackendState: "NeedsMachineAuth",
+    });
+    expect(error.code).toBe("CONTROL_UNREACHABLE");
+    expect(error.message).toContain(`HTTP ${code}`);
+    expect(error.next).toContain("network policy");
+  });
+  it.each([
+    "register request: unexpected HTTP response: 401 Unauthorized",
+    "Get https://login.tailscale.com: unexpected HTTP response: 503 Service Unavailable",
+    "Post https://controlplane.tailscale.com/machine/register: all connection attempts failed",
+    "control: proxyconnect tcp: connection refused",
+    "proxy CONNECT to controlplane.tailscale.com:443 failed: connection refused",
+  ])("prioritizes other control transport failures with generic guidance: %s", (text) => {
+    expect(diagnose(`${text}\nLogged out.`)).toMatchObject({
+      code: "CONTROL_UNREACHABLE",
+      message: "Tailscale could not reach its control plane through the environment's proxy.",
+      next: expect.stringContaining("CA bundle"),
+    });
+  });
+  it.each([403, 405, 407])("classifies control CONNECT policy failures (HTTP %s)", (code) => {
+    const error = diagnose(
+      `proxy CONNECT controlplane.tailscale.com:443 failed: ${code} Forbidden\nLogged out.`,
+    );
+    expect(error.code).toBe("CONTROL_UNREACHABLE");
+    expect(error.message).toContain(`HTTP ${code}`);
+  });
+  it.each([403, 405, 407, 500])(
+    "prioritizes DERP HTTP rejections over auth text (HTTP %s)",
+    (code) => {
+      const error = diagnose(
+        `Get https://derp1b.tailscale.com/derp: unexpected HTTP response: ${code}\nLogged out.`,
+      );
+      expect(error.code).toBe("DERP_UNREACHABLE");
+      expect(error.next).toContain("*.tailscale.com DERP hosts");
+      expect(error.next).toContain("upgrades");
+      if (code !== 500) expect(error.message).toContain(`HTTP ${code}`);
+    },
+  );
+  it.each([
+    "invalid key: unable to validate API key",
+    "auth key expired",
+    "To authenticate, visit:",
+    "control: failed to connect: invalid key: unable to validate API key",
+  ])("preserves auth failures without a transport rejection: %s", (text) => {
+    expect(diagnose(text).code).toBe("AUTH_KEY_REJECTED");
+  });
+  it("keeps an explicit auth rejection after a successful CONNECT classified as auth", () => {
+    expect(
+      diagnose(
+        "proxy CONNECT controlplane.tailscale.com:443: 200 Connection established\n" +
+          "control: RegisterReq: invalid key: unable to validate API key\n" +
+          "To authenticate, visit:\nLogged out.",
+      ).code,
+    ).toBe("AUTH_KEY_REJECTED");
+  });
+  it("does not associate an unrelated HTTP rejection with a successful control or DERP line", () => {
+    expect(
+      diagnose(
+        "proxy CONNECT controlplane.tailscale.com:443: 200 Connection established\n" +
+          "magicsock: derp-1 connected; connGen=1\n" +
+          "Get https://example.com: unexpected HTTP response: 403 Forbidden\nLogged out.",
+      ).code,
+    ).toBe("AUTH_KEY_REJECTED");
+  });
   it("distinguishes no DERP home from a control-plane join timeout", () => {
     expect(diagnose("", { BackendState: "Running", Self: { Relay: "" } }).code).toBe(
       "DERP_UNREACHABLE",

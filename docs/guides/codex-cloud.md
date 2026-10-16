@@ -6,21 +6,25 @@ with Node.js 20 or later, including containers without root or a TUN device.
 
 ## Configure credentials and networking
 
-Configure the same credential variables described in the
-[Claude Code guide](claude-code.md#configure-credentials): `TS_AUTHKEY`
-(or `TAILSCALE_AUTHKEY`), optional `TS_SSH_USER`, and preferably `TS_SSH_KEY`
-or `TS_SSH_KEY_FILE`, otherwise `TS_SSH_PASSWORD`. Use a reusable,
-ephemeral, pre-approved auth key tagged with an ACL-restricted tag such as
-`tag:cloud-agent`. Keep the credentials in the cloud environment's secret
-configuration; never paste them into chat, arguments, or repository files.
+Configure `TS_AUTHKEY` (or `TAILSCALE_AUTHKEY`), optional `TS_SSH_USER`, and
+`TS_SSH_KEY` or `TS_SSH_KEY_FILE` under the Codex environment's **Environment
+variables**. Prefer a dedicated SSH key over `TS_SSH_PASSWORD`. For
+`TS_SSH_KEY_FILE`, the variable points to a private key file available in
+the task. See the [credential variables](claude-code.md#configure-credentials).
 
-Ensure those secrets are available when the agent runs `cts up` and SSH.
-The [official environment documentation](https://learn.chatgpt.com/docs/environments/cloud-environment#environment-variables-and-secrets)
-describes a legacy Codex environment where secrets are removed before the
-agent phase. In such an environment, adding a setup-only secret does not
-enable a later reconnect. If supported secret injection into the task is
-unavailable, report `AUTH_KEY_MISSING` to the user; do not work around it by
-persisting credentials in files or ordinary environment settings.
+Codex **network secrets** give programs placeholders. The proxy substitutes
+the real values only in HTTPS requests on port 443 to allowed domains;
+programs do not receive the raw credentials. See the
+[official environment documentation](https://learn.chatgpt.com/docs/environments/cloud-environments#configure-environment-variables-and-network-secrets).
+Tailscale's encrypted control protocol and SSH cannot use this substitution,
+so `TS_AUTHKEY` and SSH credentials must be environment variables that the
+programs can read directly.
+
+Use a dedicated, short-lived, ephemeral, pre-approved auth key with an
+ACL-restricted tag such as `tag:cloud-agent`. Ensure the variables are
+available when the agent runs `cts up` and SSH; setup-only credentials do
+not enable a later reconnect. Never paste credentials into chat, arguments,
+or repository files.
 
 Enable **agent internet access** for the environment and allow these hosts:
 
@@ -30,13 +34,23 @@ Enable **agent internet access** for the environment and allow these hosts:
 - `log.tailscale.com`
 - `derp*.tailscale.com` (or `*.tailscale.com`)
 
-Allow **POST** as well as GET for downloads. A policy permitting only GET,
-HEAD, and OPTIONS prevents the control plane from joining the node. This
-must apply during the agent phase, even if installation worked in setup.
-See the [official agent internet access settings](https://learn.chatgpt.com/docs/cloud/internet-access#configuring-agent-internet-access).
+Allow **HTTPS POST** for control traffic and GET for downloads. The policy
+must also permit **HTTP protocol upgrades** over HTTPS. Tailscale upgrades
+an HTTPS POST to `/ts2021` for its encrypted control connection. A policy
+permitting only GET, HEAD, and
+OPTIONS prevents the control plane from joining the node. This must apply
+during the agent phase, even if installation worked in setup. See the
+[official internet access settings](https://learn.chatgpt.com/docs/environments/cloud-environments#connect-to-services).
 Allow the npm registry (`registry.npmjs.org`) for package installation too.
 Keep the provider's proxy and CA variables intact; direct UDP is generally
 unavailable, so DERP relays are required.
+
+Current limitation: HTTP 403 after a successful CONNECT to
+`controlplane.tailscale.com` has been **observed in Codex Cloud**. The egress
+proxy blocks the control protocol upgrade before Tailscale evaluates the
+auth key. Allowing the domain and POST alone may not suffice: the provider's
+network policy must permit upgrades for control and DERP connections. See
+[HTTP 403 after CONNECT](troubleshooting.md#http-403-after-connect-to-controlplane).
 
 ## Install with a read-only home
 
