@@ -1,0 +1,60 @@
+name: Bug report
+description: Report a problem with Cloud-Tailscale.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Never paste auth keys, passwords, private keys, or other credentials.
+        Report vulnerabilities privately through the [Security tab](https://github.com/Dasannn/Cloud-Tailscale/security/advisories/new).
+  - type: textarea
+    id: happened
+    attributes:
+      label: What happened?
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+    validations:
+      required: true
+  - type: input
+    id: cts-version
+    attributes:
+      label: cts --version
+    validations:
+      required: true
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Environment
+      options:
+        - Claude Code on the web
+        - Codex Cloud
+        - local
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Masked output of the failing command with --json
+      description: |
+        Re-run the failing command with --json (before -- for SSH) and paste its masked output.
+        Review it first and remove every auth key, password, private key, and other credential.
+      render: text
+    validations:
+      required: true
+  - type: checkboxes
+    id: redaction
+    attributes:
+      label: Output redaction
+      options:
+        - label: I removed every auth key, password, private key, and other credential from this report
+          required: true

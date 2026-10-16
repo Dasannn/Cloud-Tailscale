@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.1
+
+- Refresh the README with badges, a short pitch, a relay flow diagram, and
+  an SSH example while preserving setup, configuration, and security guidance.
+- Use relative repository links and add a link to the sibling Agent-Bridge
+  project.
+- Add npm keywords and a concise package description.
+- Add a security policy for private vulnerability reports and a bug report
+  form with environment, version, JSON output, and secret-redaction prompts.
+
 ## 0.1.0
 
 Initial release of Cloud-Tailscale for Linux x86_64 and arm64 with Node.js
