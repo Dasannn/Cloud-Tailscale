@@ -1,14 +1,54 @@
 # Cloud-Tailscale
 
-Connect a cloud coding agent to your own Tailscale tailnet, then reach your
-private devices by name. Run commands on a home Raspberry Pi from Claude
-Code on the web or Codex Cloud, without root, OpenSSH, or `sshpass` in the
-container.
+Connect cloud coding agents to your own Tailscale tailnet and reach private devices by name.
+
+[![npm version](https://img.shields.io/npm/v/cloud-tailscale)](https://www.npmjs.com/package/cloud-tailscale)
+[![CI](https://github.com/Dasannn/Cloud-Tailscale/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Dasannn/Cloud-Tailscale/actions/workflows/ci.yml?query=branch%3Amain)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![Node.js >=20](https://img.shields.io/badge/Node.js-%3E%3D20-339933)](package.json)
+
+Run commands on a home Raspberry Pi from Claude Code on the web or Codex
+Cloud, without root, OpenSSH, or `sshpass` in the container. The npm package
+is `cloud-tailscale`; its command is `cloud-tailscale`, with the short alias
+`cts`.
+
+## Why
+
+Cloud agent containers sit behind an egress proxy, cannot accept inbound
+connections, and often lack root or a TUN device. They are ephemeral, so
+each session starts fresh. Cloud-Tailscale handles joining your tailnet
+and reaching your devices in that environment.
+
+## How it works
 
 Cloud-Tailscale installs the official Tailscale client, joins as an ephemeral
-node, and provides SSH and TCP access through the cloud environment's egress
-proxy. The npm package is `cloud-tailscale`; its command is
-`cloud-tailscale`, with the short alias `cts`.
+node with in-memory state, and provides SSH and TCP access through the cloud
+environment's egress proxy.
+
+```mermaid
+flowchart LR
+    agent["Agent container"] --> cts["cts"]
+    cts --> daemon["tailscaled<br/>Official binary<br/>Ephemeral, in-memory"]
+    daemon --> proxy["Egress proxy"]
+    proxy --> derp["Tailscale DERP relay"]
+    derp --> device["Your device<br/>e.g. Raspberry Pi"]
+```
+
+Direct UDP is usually blocked by the cloud environment, so traffic is
+relayed through Tailscale DERP, with additional latency.
+
+## 30-second example
+
+With `cts` installed and your [access configured](#configure-access-once),
+ask the agent to run a command on your device:
+
+```bash
+cts up
+cts ssh pi@raspberry -- uname -a
+cts down
+```
+
+Use your device's MagicDNS name or Tailscale IP and an authorized SSH user.
 
 ## Requirements
 
@@ -91,7 +131,7 @@ cts down
 Alternatively, use `npx -y cloud-tailscale setup`. For subsequent commands,
 use `npx -y cloud-tailscale` wherever these examples say `cts` if it is not
 on PATH. If the daemon did not survive setup, run `cts up` again.
-See the [Claude Code guide](https://github.com/Dasannn/Cloud-Tailscale/blob/main/docs/guides/claude-code.md)
+See the [Claude Code guide](docs/guides/claude-code.md)
 for secrets and network configuration.
 
 ## Quick start: Codex Cloud
@@ -114,7 +154,7 @@ Use that full executable path for all `cts` commands. To make the skill
 available in later tasks, explicitly run `cts skill --repo` from your Git
 working tree, then review and commit the single generated
 `.agents/skills/cloud-tailscale/SKILL.md`. See the
-[Codex Cloud guide](https://github.com/Dasannn/Cloud-Tailscale/blob/main/docs/guides/codex-cloud.md)
+[Codex Cloud guide](docs/guides/codex-cloud.md)
 for the full procedure and secret availability constraints.
 
 ## Commands
@@ -167,7 +207,13 @@ Tailscale version; `up --tailscale-version` overrides it.
   Windows support. Each new cloud session needs installation and connection.
   Codex Cloud live verification is a separate follow-up phase.
 
-See [troubleshooting](https://github.com/Dasannn/Cloud-Tailscale/blob/main/docs/guides/troubleshooting.md),
-the [release guide](https://github.com/Dasannn/Cloud-Tailscale/blob/main/docs/guides/release.md),
-and the [changelog](https://github.com/Dasannn/Cloud-Tailscale/blob/main/CHANGELOG.md).
+See [troubleshooting](docs/guides/troubleshooting.md),
+the [release guide](docs/guides/release.md),
+and the [changelog](CHANGELOG.md). To report a vulnerability privately, see
+the [security policy](SECURITY.md).
+
+**Related:** [Agent-Bridge](https://github.com/Dasannn/Agent-Bridge).
+
+## License
+
 Licensed under [MIT](LICENSE).
