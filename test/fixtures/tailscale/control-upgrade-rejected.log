@@ -1,0 +1,2 @@
+Received error: register request: Post "https://controlplane.tailscale.com/machine/register": all connection attempts failed (HTTP: TLS forced: no port 80 dialed, HTTPS: unexpected HTTP response: 403 Forbidden)
+control: LoginInteractive -> regen=true

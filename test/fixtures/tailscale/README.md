@@ -19,6 +19,9 @@ receive errors and connection closes invalidate that signal. Relay health
 failures include both the older home-DERP wording and 1.104.1's relay-server
 wording. Log-writer tests use synthetic Node output producers to check masking
 and survival of the launching CLI without executing Tailscale.
-The three failure logs are synthetic diagnostic cases, not production captures.
+`control-upgrade-rejected.log` preserves the exact register failure and login
+retry excerpt observed in Codex Cloud: CONNECT succeeded, but the proxy rejected
+the control protocol upgrade with HTTP 403 before the auth key was evaluated.
+The other three failure logs are synthetic diagnostic cases, not production captures.
 Archive bytes and their digest are generated in the installer tests; tests never
 download a release, execute a downloaded binary, or start a daemon.

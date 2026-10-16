@@ -11,6 +11,8 @@ Cloud-Tailscale (`cts`, also `cloud-tailscale`) joins the user's tailnet as an
 ephemeral node. It needs Linux x86_64 or arm64 and Node.js 20 or later; root
 and a TUN device are optional.
 
+In Codex Cloud, Cloud-Tailscale cannot currently connect (the environment's proxy blocks Tailscale's control protocol); tell the user instead of retrying.
+
 ## Install when missing
 
 For Claude Code with a writable global npm prefix, the recommended
@@ -37,14 +39,6 @@ path and replaces this private file (0600) each run. The home is
 Alternatively, use `npx -y cloud-tailscale setup` (or
 `npx -y cloud-tailscale up` to connect only). For later commands, replace
 `cts` below with `npx -y cloud-tailscale` if it is not on PATH.
-
-With a read-only home (Codex Cloud), install once per task in `/tmp` and use
-the full executable path wherever this skill says `cts`:
-
-```bash
-npm_config_cache=/tmp/npm-cache npm install --prefix /tmp/cts cloud-tailscale
-/tmp/cts/node_modules/.bin/cts up
-```
 
 ## Connect and reach devices
 
@@ -79,8 +73,8 @@ Relay the command's reason and next step; `--json` includes stable error codes.
 | `AUTH_KEY_REJECTED` | Replace the expired, revoked, or invalid key in secrets; check its tag and approval settings. |
 | `DOWNLOAD_FAILED` | Allow `pkgs.tailscale.com` and check the egress proxy/network policy. |
 | `CHECKSUM_MISMATCH` | Retry a fresh download and check the proxy; never bypass checksum verification. |
-| `CONTROL_UNREACHABLE` | Allow `controlplane.tailscale.com`, `login.tailscale.com`, and `log.tailscale.com`; check proxy/CA settings and allow POST. |
-| `DERP_UNREACHABLE` | Allow `derp*.tailscale.com` (or `*.tailscale.com`); direct UDP is usually blocked, so DERP is required. |
+| `CONTROL_UNREACHABLE` | Allow `controlplane.tailscale.com`, `login.tailscale.com`, and `log.tailscale.com`; check proxy/CA settings and allow POST and HTTPS protocol upgrades. |
+| `DERP_UNREACHABLE` | Allow `derp*.tailscale.com` (or `*.tailscale.com`) and HTTPS protocol upgrades; direct UDP is usually blocked, so DERP is required. |
 | `KERNEL_MODE_UNAVAILABLE` | Retry `cts up --mode userspace`. |
 | `SSH_AUTH_FAILED` | Configure an SSH key (preferred) or `TS_SSH_PASSWORD`, and check the SSH user and peer's ACL/SSH access. |
 | `HOST_KEY_CHANGED` | Stop and ask the user to verify the peer's host key; never silently remove trust records. |
@@ -90,13 +84,7 @@ Relay the command's reason and next step; `--json` includes stable error codes.
 | `GIT_ROOT_NOT_FOUND` | Run `skill --repo` inside a Git working tree with git installed, or use `skill --print`. |
 | `NOT_IMPLEMENTED` | This build lacks the requested command; use a release that includes it. |
 
-Codex Cloud needs agent internet access enabled with the hosts above and
-POST allowed, including during the agent phase.
-
 ## Make the skill available later
 
 `cts skill --print` shows this skill. `cts skill --install` installs the
-Claude Code user skill. For Codex Cloud, only when the user asks to add the
-repository skill, run `cts skill --repo`: it writes only
-`.agents/skills/cloud-tailscale/SKILL.md` at the Git root. Tell the user to
-review and commit that file. Never add it as a side effect of connecting.
+Claude Code user skill.
