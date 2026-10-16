@@ -1,6 +1,6 @@
 {
   "name": "cloud-tailscale",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "SSH from cloud coding agents to private devices on your Tailscale tailnet.",
   "keywords": [
     "tailscale",

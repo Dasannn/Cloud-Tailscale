@@ -42,6 +42,8 @@ registry.
 
 ## Phase 4: Codex Cloud verification
 
-Verify acceptance criterion 3 in a Codex Cloud task (non-root, read-only
-home), adjust the skill and guide from what is learned, and release a patch
-if needed.
+Status: Blocked; see [0002](decisions/0002-codex-cloud.md).
+
+Acceptance criterion 3 is deferred and not met. Revisit live verification
+if the proxy permits the TS2021 upgrade or the built-in VPN provides a
+working TCP path to tailnet devices.

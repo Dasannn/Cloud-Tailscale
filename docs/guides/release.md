@@ -157,5 +157,6 @@ trying again.
       or files outside the private runtime home. Never copy secrets into a
       verification record.
 - [ ] Record live results in a decision record. Codex Cloud verification
-      remains Phase 4: use a fresh non-root task with a read-only home,
-      agent internet access, and supported secret injection.
+      is blocked in Phase 4; see [0002](../decisions/0002-codex-cloud.md).
+      Revisit only if the proxy permits TS2021 or the built-in VPN exposes
+      a working TCP path to tailnet devices.

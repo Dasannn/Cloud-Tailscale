@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.2 (2026-10-16)
+
+- Fixed: proxy rejections of Tailscale's control/DERP upgrade (HTTP
+  403/405/407) are reported as `CONTROL_UNREACHABLE`/`DERP_UNREACHABLE`
+  instead of `AUTH_KEY_REJECTED`.
+- Changed: Codex Cloud is documented as unsupported for now.
+
 ## 0.1.1
 
 - Refresh the README with badges, a short pitch, a relay flow diagram, and

@@ -114,9 +114,8 @@ Files: `skill/SKILL.md`, `src/core/skill.ts`,
 `src/cli/commands/{skill,setup}.ts`, `docs/guides/claude-code.md`,
 `docs/guides/codex-cloud.md`, `docs/guides/troubleshooting.md`, tests.
 
-- `SKILL.md` per FR-8: install when missing (`npx -y cloud-tailscale` or, with
-  a read-only home, `npm install --prefix /tmp/cts cloud-tailscale` with
-  `npm_config_cache=/tmp/npm-cache`), `cts up`, `cts status`,
+- `SKILL.md` per FR-8: install when missing (`npx -y cloud-tailscale`),
+  `cts up`, `cts status`,
   `cts ssh user@host -- cmd`, `cts nc`; never ask for or paste secrets; error
   codes → what to tell the user.
 - `skill.ts`: `--print`, `--install` (`~/.claude/skills/cloud-tailscale/`),
@@ -125,8 +124,9 @@ Files: `skill/SKILL.md`, `src/core/skill.ts`,
 - `setup`: calls an injected `up` (stubbed until Phase 2), installs the skill
   when the host is Claude Code, reports each step; missing auth key is
   reported, not fatal.
-- Guides: secrets to add, setup script line, network hosts and methods to
-  allow, recommended auth key settings and ACL tag, SSH key recommendation.
+- Guides: Claude Code secrets, setup script line, network hosts and methods
+  to allow, recommended auth key settings and ACL tag, SSH key recommendation;
+  Codex Cloud's unsupported status (see [0002](decisions/0002-codex-cloud.md)).
 
 Done: tests for `skill.ts` and `setup` step reporting.
 
@@ -169,7 +169,8 @@ Files: `README.md`, `CHANGELOG.md`, `.github/workflows/publish.yml`,
 `src/cli/main.ts`, `test/unit/package.test.ts`.
 
 - `README.md` for users: what it does, requirements, quick start for Claude
-  Code on the web and Codex Cloud, auth key settings and an ACL example
+  Code on the web, a Codex Cloud unsupported status note, auth key settings
+  and an ACL example
   limiting `tag:cloud-agent` to SSH on one device, commands, security
   notes, limits (DERP-only latency, no exit node), and links to the guides.
 - Recommended Claude Code setup script after release:
@@ -217,3 +218,16 @@ Files: `src/cli/commands/{setup,status}.ts`, `src/core/paths.ts`,
 
 Done: tests for the log file (content, masking, permissions) and the
 stopped-status output; checks pass.
+
+## Phase 4: Codex Cloud verification
+
+### 4.1 Codex Cloud verification (blocked)
+
+The 2026-10-16 live task installed successfully into `/tmp`, but the egress
+proxy rejected Tailscale's TS2021 control upgrade with HTTP 403 after a
+successful CONNECT. Tailscale v1.104.1 has no alternative control transport,
+network-secret placeholders cannot carry Tailscale or SSH credentials, and
+the configured built-in VPN did not expose a working TCP path to the Pi.
+Codex Cloud is unsupported in v0.1.x; user story 2 and acceptance criterion
+3 are deferred, not met. Revisit if the proxy permits TS2021 or the built-in
+VPN provides a working TCP path. See [0002](decisions/0002-codex-cloud.md).

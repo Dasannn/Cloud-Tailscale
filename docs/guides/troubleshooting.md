@@ -2,8 +2,8 @@
 
 Run `cts status` to see the connection state and peers; use
 `cts status --json` for machine-readable output. When `cts` is missing, use
-`npx -y cloud-tailscale`, or the full `/tmp/cts/node_modules/.bin/cts` path
-from the [Codex Cloud guide](codex-cloud.md). Never print your environment
+`npx -y cloud-tailscale`. Codex Cloud is currently
+[unsupported](../decisions/0002-codex-cloud.md). Never print your environment
 or paste credentials into chat while debugging. Relay the error code,
 masked reason, and next step instead.
 
@@ -45,8 +45,9 @@ environment provider to permit the upgrade if the proxy still refuses it.
 HTTP 405 or 407 can likewise indicate a proxy policy or authentication
 restriction. A similar rejection from a DERP host is `DERP_UNREACHABLE`;
 allow HTTPS upgrades to `*.tailscale.com` DERP hosts too. See the
-[Codex Cloud guide](codex-cloud.md#configure-credentials-and-networking)
-for credential setup and the current limitation.
+[Codex Cloud status](codex-cloud.md) and
+[decision 0002](../decisions/0002-codex-cloud.md). Codex Cloud is unsupported
+in v0.1.x; explain the limitation instead of retrying.
 
 ## Setup completed but the session is offline
 
@@ -69,12 +70,11 @@ even when the secret is available later in the session. Missing credentials
 are nonfatal during setup. Other failed steps exit nonzero, even if skill
 installation succeeded.
 
-On Codex Cloud, enable agent internet access with the Tailscale hosts above,
-POST, and HTTPS upgrades allowed. A successful npm installation does not
-prove that the agent can reach the control plane or relays. Supply
-credentials as environment variables: network-secret placeholders cannot
-be substituted inside Tailscale's encrypted control protocol or SSH. See
-the [Codex guide](codex-cloud.md#configure-credentials-and-networking).
+Codex Cloud is unsupported: its proxy blocks the control upgrade, and the
+built-in VPN did not provide a working TCP path in live testing. Successful
+npm installation does not establish control or relay connectivity, and
+network-secret placeholders cannot supply Tailscale or SSH credentials.
+See [decision 0002](../decisions/0002-codex-cloud.md).
 
 ## A peer name does not resolve
 

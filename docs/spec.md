@@ -37,6 +37,11 @@ plane through the egress proxy, joined the owner's tailnet as an ephemeral
 node, pinged `raspberry5` through DERP (about 110 ms), and received its SSH
 banner through `tailscale nc`. Direct UDP was unavailable, as expected.
 
+Codex Cloud verification on 2026-10-16 failed because its egress proxy
+blocked the control protocol upgrade; the built-in VPN did not provide a
+working TCP path. Codex Cloud is unsupported in v0.1.x; see
+[0002](decisions/0002-codex-cloud.md).
+
 ## Users
 
 - **User**: a person who owns a Tailscale tailnet and works with a cloud
@@ -49,7 +54,8 @@ banner through `tailscale nc`. Direct UDP was unavailable, as expected.
 1. As a user, I add a Tailscale auth key to my cloud environment's secrets and
    one line to its setup script, and every new Claude Code session joins my
    tailnet.
-2. As a user of Codex Cloud, which has no setup script I can rely on, I tell
+2. **Deferred (not met; see [0002](decisions/0002-codex-cloud.md)).**
+   As a user of Codex Cloud, which has no setup script I can rely on, I tell
    the agent to install and run Cloud-Tailscale (or commit its skill to my
    repository once), and the task joins my tailnet.
 3. As a user, I ask the agent to run a command on `raspberry5` over SSH, and
@@ -60,8 +66,9 @@ banner through `tailscale nc`. Direct UDP was unavailable, as expected.
 ## Scope (v1)
 
 Supported platforms: Linux containers (x86_64 and arm64) with Node.js 20 or
-later. Primary targets: Claude Code on the web and Codex Cloud. Local Linux
-use is allowed but not a primary target.
+later. The supported target is Claude Code on the web. Codex Cloud is
+unsupported in v0.1.x (see [0002](decisions/0002-codex-cloud.md)). Local
+Linux use is allowed but not a primary target.
 
 ### Out of scope
 
@@ -176,17 +183,17 @@ peer over SSH without requiring OpenSSH or `sshpass` in the container:
 
 ### FR-8 Skill
 
-Cloud-Tailscale ships one short agent skill, `SKILL.md`, usable by Claude
-Code and Codex. It tells the agent how to install Cloud-Tailscale when it is
-missing (including where the home directory is read-only), how to connect,
-check status, and use `ssh` and `nc`, and never to ask for or paste secrets
-into the chat.
+Cloud-Tailscale ships one short agent skill, `SKILL.md`, for Claude Code on
+the web. It tells the agent how to install Cloud-Tailscale when it is
+missing, how to connect, check status, and use `ssh` and `nc`, and never to
+ask for or paste secrets into the chat. In Codex Cloud, it tells the agent
+to explain the unsupported status instead of retrying the connection.
 
 - `cloud-tailscale skill --print` prints it.
 - `cloud-tailscale skill --install` installs it where Claude Code loads user
   skills (`~/.claude/skills/cloud-tailscale/`).
 - `cloud-tailscale skill --repo` writes only
-  `.agents/skills/cloud-tailscale/SKILL.md` at the Git root, for Codex Cloud,
+  `.agents/skills/cloud-tailscale/SKILL.md` at the Git root,
   and tells the user to review and commit it.
 
 ### FR-9 Setup
@@ -215,15 +222,14 @@ setup script did not survive.
 
 ## Environment Requirements
 
-The documentation tells the user how to configure each provider:
+The documentation describes the supported provider and Codex Cloud's status:
 
 - **Claude Code on the web**: the auth key (and optional SSH secrets) as
   environment variables; setup script line `npx -y cloud-tailscale setup`;
   network access that allows `pkgs.tailscale.com`, `controlplane.tailscale.com`,
   `login.tailscale.com`, `log.tailscale.com`, and `*.tailscale.com` DERP hosts.
-- **Codex Cloud**: the same secrets; agent internet access enabled with the
-  hosts above and the POST method allowed; installing in `/tmp` when the home
-  is read-only.
+- **Codex Cloud**: unsupported in v0.1.x because the proxy blocks Tailscale's
+  control protocol upgrade; see [0002](decisions/0002-codex-cloud.md).
 
 ## Acceptance Criteria
 
@@ -232,7 +238,8 @@ The documentation tells the user how to configure each provider:
    ephemeral in the admin console.
 2. In that session, `cloud-tailscale ssh dasan@raspberry5 -- uname -a`
    prints the Pi's kernel version, authenticating with `TS_SSH_PASSWORD`.
-3. The same works in a Codex Cloud task after the agent installs the package
+3. **Deferred (not met; see [0002](decisions/0002-codex-cloud.md)).**
+   The same works in a Codex Cloud task after the agent installs the package
    following the skill, without root.
 4. `cloud-tailscale down` removes the node from the tailnet.
 5. No secret value appears in any command output, log, process argument list,
