@@ -1,17 +1,20 @@
 import { appendFile, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import type { TailscaleStatus } from "../../../src/tailscale/client.js";
 import { diagnose, readLogTail } from "../../../src/tailscale/diagnose.js";
 
 const fixture = (name: string) =>
   readFile(new URL(`../../fixtures/tailscale/${name}`, import.meta.url), "utf8");
 
-const weakLoginSignals = [
-  "Logged out.",
-  "To authenticate, visit:",
+const weakLoginSignals = ["Logged out.", "To authenticate, visit:"];
+const startupMessages = [
   "Switching ipn state Starting -> NeedsLogin",
   "control: LoginInteractive -> regen=true",
+  "control: doLogin(regen=true, hasUrl=false)",
+  "control: Generating a new nodekey.",
 ];
+const loginMessages = [...weakLoginSignals, ...startupMessages];
 const mixedWindows = (first: string, second: string) => [
   `${first}\n${second}`,
   `${second}\n${first}`,
@@ -30,7 +33,7 @@ describe("connection diagnostics", () => {
     expect(error.next).toContain(next);
     expect(error.message).not.toContain("https://login.tailscale.com/a/");
   });
-  it.each(["", ...weakLoginSignals])(
+  it.each(["", ...loginMessages])(
     "prioritizes the observed control upgrade rejection over a login prompt: %s",
     async (loginText) => {
       for (const text of mixedWindows(await fixture("control-upgrade-rejected.log"), loginText)) {
@@ -54,7 +57,10 @@ describe("connection diagnostics", () => {
     "RegisterReq: auth key rejected",
     "RegisterReq: auth key not valid",
     "RegisterReq: auth key not found",
-    "RegisterReq: key revoked",
+    "RegisterReq: auth-key revoked",
+    "RegisterReq: authkey invalid",
+    "RegisterReq: expired auth-key",
+    "RegisterReq: authkey not found",
     "RegisterReq: not valid auth key",
   ])("prioritizes explicit key rejections over transport errors: %s", async (authText) => {
     const failures = [
@@ -99,7 +105,7 @@ describe("connection diagnostics", () => {
     "Get https://login.tailscale.com: context deadline exceeded",
     "control: tls: bad certificate",
   ])("prioritizes other control transport failures with generic guidance: %s", (text) => {
-    for (const loginText of weakLoginSignals) {
+    for (const loginText of loginMessages) {
       for (const window of mixedWindows(text, loginText)) {
         for (const BackendState of ["NeedsLogin", "NeedsMachineAuth"]) {
           expect(diagnose(window, { BackendState })).toMatchObject({
@@ -108,6 +114,42 @@ describe("connection diagnostics", () => {
             next: expect.stringContaining("CA bundle"),
           });
         }
+      }
+    }
+  });
+  it.each([
+    "control: fetch control key: 404 Not Found",
+    'control: fetch control key: Get "https://controlplane.tailscale.com/key": tls: failed to verify certificate: x509: certificate has expired or is not yet valid',
+  ])("classifies control public-key fetch failures as transport failures: %s", (failure) => {
+    for (const loginText of ["", ...loginMessages]) {
+      for (const text of mixedWindows(failure, loginText)) {
+        for (const status of [
+          undefined,
+          { BackendState: "NeedsLogin" },
+          { BackendState: "NeedsMachineAuth" },
+          { BackendState: "Running" },
+        ]) {
+          expect(diagnose(text, status)).toMatchObject({
+            code: "CONTROL_UNREACHABLE",
+            next: expect.stringContaining("CA bundle"),
+          });
+        }
+      }
+    }
+  });
+  it.each([
+    "control: node key expired; renewing",
+    "control: expired node key; renewing",
+    "control: nodekey expired; regenerating",
+    "control: node-key not valid; renewing",
+    "control: RegisterReq: key revoked",
+  ])("keeps node-key renewal below transport failures: %s", (renewal) => {
+    for (const [failure, code] of [
+      ["control: unexpected HTTP response: 403 Forbidden", "CONTROL_UNREACHABLE"],
+      ["derphttp: unexpected HTTP response: 403 Forbidden", "DERP_UNREACHABLE"],
+    ]) {
+      for (const text of mixedWindows(failure, renewal)) {
+        expect(diagnose(`${text}\nLogged out.`, { BackendState: "NeedsLogin" }).code).toBe(code);
       }
     }
   });
@@ -124,7 +166,7 @@ describe("connection diagnostics", () => {
         `proxy CONNECT ${host}:443 failed: ${code} ${reason}`,
         `Get https://${host}: proxyconnect tcp: ${code} ${reason}`,
       ]) {
-        for (const loginText of weakLoginSignals) {
+        for (const loginText of loginMessages) {
           for (const text of mixedWindows(failure, loginText)) {
             const error = diagnose(text);
             expect(error.code).toBe(expectedCode);
@@ -172,7 +214,27 @@ describe("connection diagnostics", () => {
   it("treats NeedsLogin status as a weak login signal", () => {
     expect(diagnose("", { BackendState: "NeedsLogin" }).code).toBe("AUTH_KEY_REJECTED");
   });
-  it.each(weakLoginSignals)("prioritizes device approval over a login prompt: %s", (text) => {
+  it.each(startupMessages)("ignores routine login startup messages: %s", (text) => {
+    expect(diagnose(text).code).toBe("CONTROL_UNREACHABLE");
+  });
+  it.each(loginMessages)(
+    "prioritizes current Running control status over login logs: %s",
+    async (text) => {
+      const status: TailscaleStatus = JSON.parse(await fixture("status-running.json"));
+      status.Self = { ...status.Self, Online: false };
+      expect(diagnose(text, status)).toMatchObject({
+        code: "CONTROL_UNREACHABLE",
+        message: expect.stringContaining("has not confirmed its control connection"),
+      });
+    },
+  );
+  it.each(loginMessages)("prioritizes current DERP health over login logs: %s", async (text) => {
+    const status: TailscaleStatus = JSON.parse(await fixture("status-running.json"));
+    status.Self = { ...status.Self, Online: false };
+    status.Health = ["Tailscale could not connect to the 'New York City' relay server."];
+    expect(diagnose(text, status).code).toBe("DERP_UNREACHABLE");
+  });
+  it.each(loginMessages)("prioritizes device approval over a login prompt: %s", (text) => {
     expect(diagnose(text, { BackendState: "NeedsMachineAuth" })).toMatchObject({
       code: "AUTH_KEY_REJECTED",
       next: expect.stringContaining("Approve the device"),
@@ -257,7 +319,7 @@ describe("connection diagnostics", () => {
       code: "DERP_UNREACHABLE",
       next: expect.stringContaining("*.tailscale.com DERP hosts"),
     });
-    for (const loginText of weakLoginSignals) {
+    for (const loginText of loginMessages) {
       for (const window of mixedWindows(text, loginText)) {
         for (const BackendState of ["NeedsLogin", "NeedsMachineAuth"]) {
           expect(diagnose(window, { BackendState }).code).toBe("DERP_UNREACHABLE");

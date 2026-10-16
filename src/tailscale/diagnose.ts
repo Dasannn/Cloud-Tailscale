@@ -35,10 +35,10 @@ export function hasDerpWarning(status: TailscaleStatus): boolean {
 
 /** Return actionable errors without copying subprocess output or login URLs into logs. */
 export function diagnose(text: string, status?: TailscaleStatus): CtError {
-  // An explicit key rejection is stronger evidence than transport errors from
-  // other attempts in the same log window.
+  // An explicit auth-key rejection is stronger evidence than transport errors.
+  // Bare keys can refer to the server's public key or a node key being renewed.
   if (
-    /(?:invalid|expired|revoked|rejected|not valid)[^\n]*(?:auth.?key|key)|(?:auth.?key|\bkey\b)[^\n]*(?:invalid|expired|revoked|rejected|not valid|not found)/i.test(
+    /\binvalid key: unable to validate API key\b|\b(?:invalid|expired|revoked|rejected|not valid|not found)\b[^\n]*\bauth[ -]?key\b|\bauth[ -]?key\b[^\n]*\b(?:invalid|expired|revoked|rejected|not valid|not found)\b/i.test(
       text,
     )
   ) {
@@ -49,7 +49,7 @@ export function diagnose(text: string, status?: TailscaleStatus): CtError {
   const lines = text.split(/\r?\n/);
   const transportFailures = lines.filter(
     (line) =>
-      /failed|failure|timeout|timed out|deadline exceeded|refused|unreachable|error|denied|x509|unknown authority|bad certificate|does not look like a TLS handshake|server gave HTTP response to HTTPS client|no such host|\bEOF\b|not connected|could not connect|unable to connect|unexpected HTTP response:\s*[45]\d{2}\b|proxyconnect tcp/i.test(
+      /failed|failure|timeout|timed out|deadline exceeded|refused|unreachable|error|denied|x509|unknown authority|bad certificate|does not look like a TLS handshake|server gave HTTP response to HTTPS client|no such host|\bEOF\b|not connected|could not connect|unable to connect|(?:unexpected HTTP response:|fetch control key:)\s*[45]\d{2}\b|proxyconnect tcp/i.test(
         line,
       ) ||
       ((/\bCONNECT\b/.test(line) || /\bproxy\s+connect\b/i.test(line)) &&
@@ -72,9 +72,10 @@ export function diagnose(text: string, status?: TailscaleStatus): CtError {
       "Approve the device in the Tailscale admin console or use a pre-approved, ephemeral, tagged auth key from the environment's secrets.",
     );
   }
+  // Startup login activity is routine; even prompts can be stale once Running.
   if (
     status?.BackendState === "NeedsLogin" ||
-    /To authenticate, visit:|Logged out\.|\bNeedsLogin\b|\bLoginInteractive\b/i.test(text)
+    (status?.BackendState !== "Running" && /To authenticate, visit:|Logged out\./i.test(text))
   ) {
     return authKeyError();
   }
