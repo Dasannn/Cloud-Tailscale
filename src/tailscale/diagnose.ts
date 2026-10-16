@@ -4,8 +4,9 @@ import { mask } from "../core/output.js";
 import type { TailscaleStatus } from "./client.js";
 
 const derpDestination = /\bderp(?:\b|http|\w*\.tailscale\.com)|\brelay\b/i;
+// login-state is a health warning label, not a control destination.
 const controlDestination =
-  /\b(?:control|login|register|coord)\b|(?:controlplane|login|log)\.tailscale\.com/i;
+  /\b(?:control|login(?!-state\b)|register|coord)\b|(?:controlplane|login|log)\.tailscale\.com/i;
 
 export async function readLogTail(path: string, startOffset = 0): Promise<string> {
   try {
@@ -38,7 +39,7 @@ export function diagnose(text: string, status?: TailscaleStatus): CtError {
   // An explicit auth-key rejection is stronger evidence than transport errors.
   // Bare keys can refer to the server's public key or a node key being renewed.
   if (
-    /\binvalid key: unable to validate API key\b|\b(?:invalid|expired|revoked|rejected|not valid|not found)\b[^\n]*\bauth[ -]?key\b|\bauth[ -]?key\b[^\n]*\b(?:invalid|expired|revoked|rejected|not valid|not found)\b/i.test(
+    /\binvalid key: (?:unable to validate )?API key\b[^\n]*|\b(?:invalid|expired|revoked|rejected|not valid|not found)\b[^\n]*\bauth[ -]?key\b|\bauth[ -]?key\b[^\n]*\b(?:invalid|expired|revoked|rejected|not valid|not found)\b/i.test(
       text,
     )
   ) {

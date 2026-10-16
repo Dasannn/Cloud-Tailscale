@@ -52,6 +52,10 @@ describe("connection diagnostics", () => {
   );
   it.each([
     "invalid key: unable to validate API key",
+    "invalid key: unable to validate API key: key expired",
+    "invalid key: API key does not exist",
+    "invalid key: API key FAKE not valid",
+    "health(warnable=login-state): error: invalid key: API key does not exist",
     "RegisterReq: auth key expired",
     "RegisterReq: auth key revoked",
     "RegisterReq: auth key rejected",
@@ -70,13 +74,30 @@ describe("connection diagnostics", () => {
       "proxy CONNECT controlplane.tailscale.com:443 failed: 407 Proxy Authentication Required",
       "derphttp: unexpected HTTP response: 403 Forbidden",
     ];
-    for (const failure of failures) {
-      for (const text of mixedWindows(`${failure}\nLogged out.`, authText)) {
-        expect(diagnose(text, { BackendState: "NeedsMachineAuth" })).toMatchObject({
-          code: "AUTH_KEY_REJECTED",
-          next: expect.stringContaining("TS_AUTHKEY"),
-        });
+    for (const status of [
+      undefined,
+      { BackendState: "NeedsLogin" },
+      { BackendState: "NeedsMachineAuth" },
+    ]) {
+      expect(diagnose(authText, status)).toMatchObject({
+        code: "AUTH_KEY_REJECTED",
+        next: expect.stringContaining("TS_AUTHKEY"),
+      });
+      for (const failure of failures) {
+        for (const text of mixedWindows(failure, authText)) {
+          expect(diagnose(text, status)).toMatchObject({
+            code: "AUTH_KEY_REJECTED",
+            next: expect.stringContaining("TS_AUTHKEY"),
+          });
+        }
       }
+    }
+  });
+  it("does not treat the login-state health wrapper as a control destination", () => {
+    const health = "health(warnable=login-state): error: not logged in";
+    expect(diagnose(health, { BackendState: "NeedsLogin" }).code).toBe("AUTH_KEY_REJECTED");
+    for (const text of mixedWindows(health, "Logged out.")) {
+      expect(diagnose(text).code).toBe("AUTH_KEY_REJECTED");
     }
   });
   it.each([403, 405, 407])("explains control proxy policy rejections (HTTP %s)", (code) => {
